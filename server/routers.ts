@@ -21,9 +21,9 @@ import {
   getWeeklyGoal,
   saveDailyAnswers,
   saveProgram,
-  saveStudentProfile,
   saveWeeklyGoal,
   setUserRole,
+  updateStudentProfile,
 } from "./db";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -318,7 +318,15 @@ export const appRouter = router({
             "الصف لا يتوافق مع المرحلة"
           )
       )
-      .mutation(({ input }) => saveStudentProfile(input)),
+      .mutation(async ({ input }) => {
+        const profile = await updateStudentProfile(input);
+        if (!profile)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "حساب الطالب غير موجود.",
+          });
+        return profile;
+      }),
     setRole: adminProcedure
       .input(
         z.object({

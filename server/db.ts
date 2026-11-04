@@ -15,6 +15,7 @@ import { DEFAULT_PROGRAM_ITEMS } from "../shared/program";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -80,15 +81,15 @@ export async function getStudentProfile(userId: number) {
   return result[0] ?? null;
 }
 
-export async function saveStudentProfile(input: {
+type StudentProfileInput = {
   userId: number;
   displayName: string;
   stage: ProgramStage;
   grade: string;
   active?: boolean;
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
+};
+
+async function upsertStudentProfile(db: Database, input: StudentProfileInput) {
   const active = input.active ?? true;
   await db
     .insert(studentProfiles)
@@ -102,6 +103,25 @@ export async function saveStudentProfile(input: {
         updatedAt: new Date(),
       },
     });
+}
+
+export async function saveStudentProfile(input: StudentProfileInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await upsertStudentProfile(db, input);
+  return getStudentProfile(input.userId);
+}
+
+export async function updateStudentProfile(input: StudentProfileInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const user = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, input.userId))
+    .limit(1);
+  if (!user[0]) return null;
+  await upsertStudentProfile(db, input);
   return getStudentProfile(input.userId);
 }
 
