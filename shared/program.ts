@@ -1,4 +1,26 @@
 export type ProgramStage = "primary" | "middle";
+export const PROGRAM_GRADES = [
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+] as const;
+export type ProgramGrade = (typeof PROGRAM_GRADES)[number];
+
+export const GRADES_BY_STAGE: Record<ProgramStage, readonly ProgramGrade[]> = {
+  primary: ["1", "2", "3", "4", "5", "6"],
+  middle: ["7", "8", "9"],
+};
+
+export function isGradeForStage(stage: ProgramStage, grade: string): boolean {
+  return GRADES_BY_STAGE[stage].some(validGrade => validGrade === grade);
+}
+
 export type AnswerValue = string;
 export type ProgramChoice = { value: string; label: string };
 
@@ -14,7 +36,10 @@ export type ProgramItem = {
 
 export type GoalTask = { id: string; title: string; done: boolean };
 
-const yesNo = (): ProgramChoice[] => [{ value: "done", label: "أنجزت" }, { value: "missed", label: "لم أنجز" }];
+const yesNo = (): ProgramChoice[] => [
+  { value: "done", label: "أنجزت" },
+  { value: "missed", label: "لم أنجز" },
+];
 const study = (): ProgramChoice[] => [
   { value: "less1", label: "أقل من ساعة" },
   { value: "1h", label: "ساعة" },
@@ -34,18 +59,114 @@ const phone = (): ProgramChoice[] => [
 ];
 
 export const DEFAULT_PROGRAM_ITEMS: ProgramItem[] = [
-  { key: "evening-dhikr", title: "أذكار المساء", category: "worship", hint: "أذكار المساء", response: "yesno", choices: yesNo(), enabled: true },
-  { key: "istighfar", title: "٣٣ استغفارًا", category: "worship", hint: "أستغفر الله وأتوب إليه", response: "yesno", choices: yesNo(), enabled: true },
-  { key: "salawat", title: "٣٣ صلاة على النبي ﷺ", category: "worship", hint: "اللهم صلِّ وسلم على نبينا محمد", response: "yesno", choices: yesNo(), enabled: true },
-  { key: "tahlil", title: "٣٣ مرة: لا إله إلا الله", category: "worship", hint: "لا إله إلا الله", response: "yesno", choices: yesNo(), enabled: true },
-  { key: "sleep-adhkar", title: "دعاء النوم وآية الكرسي والمعوذات", category: "worship", hint: "قبل النوم", response: "yesno", choices: yesNo(), enabled: true },
-  { key: "fajr", title: "صلاة الفجر مع ركعتين", category: "worship", hint: "صلاة الفجر وسنتها", response: "yesno", choices: yesNo(), enabled: true },
-  { key: "quran", title: "صفحتان من القرآن الكريم", category: "worship", hint: "وردك القرآني اليوم", response: "yesno", choices: yesNo(), enabled: true },
-  { key: "story", title: "قراءة قصة اليوم", category: "learning", hint: "قصة اليوم", response: "yesno", choices: yesNo(), enabled: true },
-  { key: "study", title: "الدراسة", category: "learning", hint: "من ساعة إلى ٣ ساعات", response: "study", choices: study(), enabled: true },
-  { key: "words", title: "حفظ كلمات أجنبية", category: "learning", hint: "الهدف: ٣ كلمات", response: "words", choices: words(), enabled: true },
-  { key: "phone", title: "وقت اللعب على الجوال", category: "home", hint: "من نصف ساعة إلى ساعة", response: "phone", choices: phone(), enabled: true },
-  { key: "parents", title: "بر الوالدين", category: "home", hint: "عمل طيب اليوم", response: "yesno", choices: yesNo(), enabled: true },
+  {
+    key: "evening-dhikr",
+    title: "أذكار المساء",
+    category: "worship",
+    hint: "أذكار المساء",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
+  {
+    key: "istighfar",
+    title: "٣٣ استغفارًا",
+    category: "worship",
+    hint: "أستغفر الله وأتوب إليه",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
+  {
+    key: "salawat",
+    title: "٣٣ صلاة على النبي ﷺ",
+    category: "worship",
+    hint: "اللهم صلِّ وسلم على نبينا محمد",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
+  {
+    key: "tahlil",
+    title: "٣٣ مرة: لا إله إلا الله",
+    category: "worship",
+    hint: "لا إله إلا الله",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
+  {
+    key: "sleep-adhkar",
+    title: "دعاء النوم وآية الكرسي والمعوذات",
+    category: "worship",
+    hint: "قبل النوم",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
+  {
+    key: "fajr",
+    title: "صلاة الفجر مع ركعتين",
+    category: "worship",
+    hint: "صلاة الفجر وسنتها",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
+  {
+    key: "quran",
+    title: "صفحتان من القرآن الكريم",
+    category: "worship",
+    hint: "وردك القرآني اليوم",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
+  {
+    key: "story",
+    title: "قراءة قصة اليوم",
+    category: "learning",
+    hint: "قصة اليوم",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
+  {
+    key: "study",
+    title: "الدراسة",
+    category: "learning",
+    hint: "من ساعة إلى ٣ ساعات",
+    response: "study",
+    choices: study(),
+    enabled: true,
+  },
+  {
+    key: "words",
+    title: "حفظ كلمات أجنبية",
+    category: "learning",
+    hint: "الهدف: ٣ كلمات",
+    response: "words",
+    choices: words(),
+    enabled: true,
+  },
+  {
+    key: "phone",
+    title: "وقت اللعب على الجوال",
+    category: "home",
+    hint: "من نصف ساعة إلى ساعة",
+    response: "phone",
+    choices: phone(),
+    enabled: true,
+  },
+  {
+    key: "parents",
+    title: "بر الوالدين",
+    category: "home",
+    hint: "عمل طيب اليوم",
+    response: "yesno",
+    choices: yesNo(),
+    enabled: true,
+  },
 ];
 
 export const CATEGORY_LABELS: Record<ProgramItem["category"], string> = {
