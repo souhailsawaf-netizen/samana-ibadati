@@ -6,6 +6,11 @@ import {
   verifyPassword,
   verifySessionToken,
 } from "./auth";
+import {
+  hasExactStudentRegistrationPasswordLength,
+  isValidUsername,
+  normalizeUsername,
+} from "../shared/auth";
 
 const previousSecret = process.env.AUTH_SESSION_SECRET;
 const previousVercel = process.env.VERCEL;
@@ -15,6 +20,35 @@ afterEach(() => {
   else process.env.AUTH_SESSION_SECRET = previousSecret;
   if (previousVercel === undefined) delete process.env.VERCEL;
   else process.env.VERCEL = previousVercel;
+});
+
+describe("student account input rules", () => {
+  it.each(["ahmad24", "أحمد24", "أَحْمَد_24", "123-abc", "Ali_7"])(
+    "accepts an Arabic or Latin username: %s",
+    username => {
+      expect(isValidUsername(username)).toBe(true);
+    }
+  );
+
+  it.each(["ab", "ahmad 24", "@ahmad", "中文123", "-ahmad", "_ab", "ſam"])(
+    "rejects an invalid username: %s",
+    username => {
+      expect(isValidUsername(username)).toBe(false);
+    }
+  );
+
+  it("trims, lowercases Latin letters, and normalizes Unicode", () => {
+    expect(normalizeUsername("  AHMaD_24  ")).toBe("ahmad_24");
+    expect(normalizeUsername("أحمد24")).toBe("أحمد24");
+    expect(isValidUsername("Kel")).toBe(false);
+  });
+
+  it("accepts exactly six Unicode code points for a new student password", () => {
+    expect(hasExactStudentRegistrationPasswordLength("Abأ1!؟")).toBe(true);
+    expect(hasExactStudentRegistrationPasswordLength("🔐aB1!x")).toBe(true);
+    expect(hasExactStudentRegistrationPasswordLength("Ab1!؟")).toBe(false);
+    expect(hasExactStudentRegistrationPasswordLength("Ab12!؟x")).toBe(false);
+  });
 });
 
 describe("local account security", () => {

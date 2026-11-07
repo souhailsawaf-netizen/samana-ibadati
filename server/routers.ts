@@ -3,9 +3,12 @@ import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import {
   createSessionToken,
+  hasExactStudentRegistrationPasswordLength,
+  isValidUsername,
   hashPassword,
   makeLoginAttemptKey,
   normalizeUsername,
+  STUDENT_REGISTRATION_PASSWORD_LENGTH,
   verifyPassword,
   AUTH_SESSION_MAX_AGE_MS,
 } from "./auth";
@@ -112,11 +115,19 @@ function isValidAnswer(item: ProgramItem, value: string) {
 
 const usernameSchema = z
   .string()
-  .trim()
-  .toLowerCase()
-  .min(3)
-  .max(32)
-  .regex(/^[a-z0-9][a-z0-9_-]*$/, "استخدم حروفًا إنجليزية صغيرة وأرقامًا فقط.");
+  .max(128)
+  .refine(
+    isValidUsername,
+    "استخدم ٣–٣٢ حرفًا عربيًا أو إنجليزيًا، مع أرقام أو _ أو - عند الحاجة."
+  )
+  .transform(normalizeUsername);
+const studentRegistrationPasswordSchema = z
+  .string()
+  .max(STUDENT_REGISTRATION_PASSWORD_LENGTH * 2)
+  .refine(
+    hasExactStudentRegistrationPasswordLength,
+    "كلمة المرور يجب أن تتكون من ٦ أحرف بالضبط."
+  );
 const genericLoginError = "اسم المستخدم أو كلمة المرور غير صحيحة، أو أن الحساب مقيد مؤقتًا.";
 let dummyPasswordHash: Promise<string> | undefined;
 
@@ -149,7 +160,7 @@ export const appRouter = router({
       .input(
         z.object({
           username: usernameSchema,
-          password: z.string().min(10).max(128),
+          password: studentRegistrationPasswordSchema,
         })
       )
       .mutation(async ({ ctx, input }) => {

@@ -13,6 +13,12 @@ import {
 } from "../../../shared/program";
 import { DAILY_STORIES } from "../../../shared/stories";
 import {
+  hasExactStudentRegistrationPasswordLength,
+  isValidUsername,
+  normalizeUsername,
+  STUDENT_REGISTRATION_PASSWORD_LENGTH,
+} from "../../../shared/auth";
+import {
   BookOpen,
   Check,
   Download,
@@ -1703,8 +1709,16 @@ function LoginPage() {
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!isValidUsername(username)) {
+      toast.error("اسم المستخدم يجب أن يكون من ٣ إلى ٣٢ حرفًا عربيًا أو إنجليزيًا أو رقمًا.");
+      return;
+    }
     if (mode === "login") {
       login.mutate({ username, password });
+      return;
+    }
+    if (!hasExactStudentRegistrationPasswordLength(password)) {
+      toast.error("كلمة المرور يجب أن تتكون من ٦ أحرف بالضبط.");
       return;
     }
     register.mutate({ username, password });
@@ -1746,17 +1760,16 @@ function LoginPage() {
               id="account-username"
               required
               autoComplete="username"
-              dir="ltr"
+              dir="auto"
               value={username}
-              onChange={event => setUsername(event.target.value.toLowerCase())}
+              onChange={event => setUsername(event.target.value)}
               minLength={3}
-              maxLength={32}
-              pattern="[a-z0-9][a-z0-9_-]*"
-              placeholder="مثال: ahmad24"
+              maxLength={128}
+              placeholder="مثال: أحمد24 أو ahmad24"
             />
             {mode === "register" && (
               <span className="task-hint">
-                حروف إنجليزية صغيرة وأرقام وشرطة سفلية فقط.
+                من ٣ إلى ٣٢ حرفًا؛ ابدأ بحرف أو رقم، واستخدم العربية أو الإنجليزية و _ أو - عند الحاجة.
               </span>
             )}
           </div>
@@ -1769,12 +1782,16 @@ function LoginPage() {
               autoComplete={mode === "login" ? "current-password" : "new-password"}
               value={password}
               onChange={event => setPassword(event.target.value)}
-              minLength={mode === "register" ? 10 : 1}
-              maxLength={128}
+              minLength={1}
+              maxLength={
+                mode === "register"
+                  ? STUDENT_REGISTRATION_PASSWORD_LENGTH * 2
+                  : 128
+              }
             />
             {mode === "register" && (
               <span className="task-hint">
-                استخدم ١٠ أحرف أو أكثر واحفظها في مكان آمن.
+                استخدم ٦ أحرف بالضبط؛ يمكنك استخدام الحروف أو الأرقام أو الرموز.
               </span>
             )}
           </div>

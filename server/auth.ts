@@ -5,6 +5,14 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
+import { normalizeUsername } from "../shared/auth";
+
+export {
+  hasExactStudentRegistrationPasswordLength,
+  isValidUsername,
+  normalizeUsername,
+  STUDENT_REGISTRATION_PASSWORD_LENGTH,
+} from "../shared/auth";
 
 const PASSWORD_KEY_LENGTH = 64;
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -16,10 +24,6 @@ function deriveKey(password: string, salt: Buffer): Promise<Buffer> {
       else resolve(key as Buffer);
     });
   });
-}
-
-export function normalizeUsername(value: string): string {
-  return value.trim().toLowerCase();
 }
 
 export async function hashPassword(password: string): Promise<string> {
