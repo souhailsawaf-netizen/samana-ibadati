@@ -810,12 +810,13 @@ function StudentInviteManager() {
   return (
     <section className="paper-card card-pad" style={{ marginBottom: "1rem" }}>
       <div className="section-heading" style={{ marginTop: 0 }}>
-        <h2>إضافة طالب بدعوة خاصة</h2>
-        <span className="section-count">الرمز يستخدم مرة واحدة</span>
+        <h2>دعوة طالب (اختيارية)</h2>
+        <span className="section-count">التسجيل الذاتي متاح أيضًا</span>
       </div>
       <p className="muted">
-        أدخل اسم الطالب ومرحلته وصفّه. شارك رمز الدعوة معه؛ يختار الطالب اسم
-        المستخدم وكلمة المرور بنفسه عند إنشاء الحساب.
+        التسجيل الذاتي متاح للطلاب. ويمكنك أيضًا إصدار دعوة اختيارية لطالب محدّد؛
+        أدخل اسمه ومرحلته وصفّه وشارك الرمز معه، وسيختار اسم المستخدم وكلمة المرور
+        بنفسه.
       </p>
       <form
         className="invite-form"
@@ -1306,8 +1307,9 @@ function AdminPage({
               </span>
             </div>
             <div className="notice" style={{ marginBottom: ".8rem" }}>
-              أنشئ دعوة للطالب أعلاه وشاركه الرمز. ينشئ الطالب اسم المستخدم
-              وكلمة المرور بنفسه، ثم يظهر ملفه هنا لإدارة صفه وحالة مشاركته.
+              التسجيل الذاتي مفتوح؛ تظهر الحسابات هنا بعد إنشاء الطالب لحسابه
+              وإكمال ملفه. ويمكنك استخدام الدعوة الاختيارية أعلاه لتنظيم تسجيل
+              طالب معيّن.
             </div>
             <div className="table-wrap">
               <table>
