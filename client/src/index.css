@@ -195,9 +195,33 @@ tr:last-child td { border-bottom: 0; }
 .focus-stat-content .eyebrow { color: #6c4b00; }
 .focus-stat-content .focus-stat-highlight span, .focus-stat-content .focus-stat-row-title, .focus-stat-content .focus-stat-note, .focus-stat-content .focus-stat-footnote { color: #536273; }
 .focus-stat-content .focus-stat-row-title strong { color: var(--navy); }
+.student-page .eyebrow { color: #6c4b00; }
+.student-page .muted, .student-page .section-count, .student-page .task-hint, .student-page .footer-note { color: #536273; }
+.student-page .footer-note { font-size: .82rem; }
+.student-page .task-name { font-size: 1.05rem; }
+.student-page .task-hint { font-size: .88rem; line-height: 1.55; }
+.student-page .section-count { font-size: .9rem; }
+.student-page .choice-btn, .student-page .choice-select { min-height: 48px; font-size: .95rem; }
+.student-page .choice-btn { min-width: 84px; padding-inline: .8rem; }
+.student-page .story-label { color: #6c4b00; }
+.student-page .story-label span { color: #536273; }
+.student-page .button { min-height: 48px; }
+.student-page .button-small { min-height: 44px; }
+.student-page .inline-check { width: 28px; height: 28px; flex: 0 0 28px; }
+.student-page .story-note { color: #536273 !important; font-size: .8rem; }
+.student-page .history-day strong { font-size: .85rem; }
+.student-page .history-day span { font-size: .95rem; }
+.student-progress-message { width: fit-content; max-width: 100%; margin: .65rem 0 0; padding: .4rem .7rem; border: 1px solid rgba(242,201,76,.45); border-radius: 999px; background: rgba(255,255,255,.1); color: #fff7d6; font-size: .9rem; font-weight: 700; line-height: 1.5; }
+.student-save-bar { position: sticky; top: .5rem; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: .8rem 0 1rem; padding: .6rem .8rem; border: 1px solid rgba(226,220,205,.9); border-radius: 1rem; background: rgba(255,253,248,.96); box-shadow: 0 8px 20px rgba(32,59,86,.1); backdrop-filter: blur(8px); }
+.student-save-status { margin: 0; color: #536273; font-size: .9rem; font-weight: 700; }
+.student-save-button { min-width: 220px; min-height: 48px; }
+.student-page .choice-btn:focus-visible, .student-page .button:focus-visible { outline: 3px solid var(--gold-dark); outline-offset: 3px; }
 @media (max-width: 760px) {
   .overview-grid, .goal-layout { grid-template-columns: 1fr; }
   .focus-stat-grid { grid-template-columns: 1fr; }
+  .student-save-bar { flex-direction: column; align-items: stretch; }
+  .student-save-status { text-align: center; }
+  .student-save-button { width: 100%; }
   .invite-form { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .page-wrap { padding: 1rem .8rem 3rem; }
   .topbar-inner { padding: .8rem; }
@@ -212,6 +236,7 @@ tr:last-child td { border-bottom: 0; }
   .hero-card { padding: 1.1rem; }
   .progress-ring { width: 76px; height: 76px; flex-basis: 76px; }
   .progress-ring strong { font-size: 1rem; }
+  .student-save-bar { top: .25rem; margin-inline: -.1rem; }
   .task-row { align-items: flex-start; flex-direction: column; }
   .task-controls { width: 100%; }
   .choice-btn { flex: 1; }

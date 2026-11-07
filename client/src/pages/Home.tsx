@@ -31,7 +31,14 @@ import {
   Target,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { toast } from "sonner";
 
 type View = "student" | "admin";
@@ -74,6 +81,27 @@ function getDoneCount(items: ProgramItem[], answers: Answers) {
 }
 function percent(part: number, total: number) {
   return total ? Math.round((part / total) * 100) : 0;
+}
+function getDailyProgressMessage(completedCount: number, totalCount: number) {
+  if (totalCount === 0) return "لا توجد أعمال مفعّلة اليوم.";
+  if (completedCount === 0)
+    return "ابدأ بخطوة تناسبك، وكل يوم بداية جديدة.";
+  if (completedCount === totalCount)
+    return "ما شاء الله، أتممت خطوات اليوم!";
+  return `أحسنت، أتممت ${completedCount} من ${totalCount}. أكمل على راحتك.`;
+}
+function getStudentSaveStatusMessage(state: {
+  isPending: boolean;
+  hasError: boolean;
+  hasUnsavedAnswers: boolean;
+  isSuccess: boolean;
+  hasSavedLog: boolean;
+}) {
+  if (state.isPending) return "جارٍ حفظ يومك…";
+  if (state.hasError) return "تعذّر الحفظ. جرّب مرة أخرى.";
+  if (state.hasUnsavedAnswers) return "لديك تغييرات لم تُحفظ بعد.";
+  if (state.isSuccess || state.hasSavedLog) return "تقدّمك محفوظ.";
+  return "اختر إجاباتك، ثم احفظ يومك.";
 }
 function exportCsv(
   rows: Array<{
@@ -360,6 +388,9 @@ function StudentPage({
   userName: string;
 }) {
   const utils = trpc.useUtils();
+  const [hasUnsavedAnswers, setHasUnsavedAnswers] = useState(false);
+  const hasUnsavedAnswersRef = useRef(false);
+  const activeAnswersDateRef = useRef(dashboard.today);
   const profileMutation = trpc.student.createProfile.useMutation({
     onSuccess: () => {
       toast.success("اكتمل ملفك، أهلًا بك في البرنامج!");
@@ -369,6 +400,8 @@ function StudentPage({
   });
   const answersMutation = trpc.student.saveAnswers.useMutation({
     onSuccess: () => {
+      hasUnsavedAnswersRef.current = false;
+      setHasUnsavedAnswers(false);
       toast.success("تم حفظ يومك، أحسنت!");
       utils.student.dashboard.invalidate();
     },
@@ -393,6 +426,17 @@ function StudentPage({
   const enabledItems = items.filter(item => item.enabled);
   const completedCount = getDoneCount(items, answers);
   const completionPercent = percent(completedCount, enabledItems.length);
+  const progressMessage = getDailyProgressMessage(
+    completedCount,
+    enabledItems.length
+  );
+  const saveStatusMessage = getStudentSaveStatusMessage({
+    isPending: answersMutation.isPending,
+    hasError: answersMutation.isError,
+    hasUnsavedAnswers,
+    isSuccess: answersMutation.isSuccess,
+    hasSavedLog: Boolean(dashboard.todayLog),
+  });
   const storyAnchor =
     dashboard.program.startDate || `${dashboard.today.slice(0, 8)}01`;
   const storyOffset = Math.max(
@@ -407,8 +451,22 @@ function StudentPage({
   const story = DAILY_STORIES[storyOffset % DAILY_STORIES.length];
 
   useEffect(() => {
+    const dateChanged = activeAnswersDateRef.current !== dashboard.today;
+    activeAnswersDateRef.current = dashboard.today;
+    if (hasUnsavedAnswersRef.current && !dateChanged) return;
+    if (hasUnsavedAnswersRef.current && dateChanged) {
+      hasUnsavedAnswersRef.current = false;
+      setHasUnsavedAnswers(false);
+      toast.error(
+        "لم تُحفظ إجابات اليوم السابق؛ ابدأ تسجيل يومك الجديد من البداية."
+      );
+    }
     setAnswers(dashboard.todayLog?.answers ?? {});
-  }, [dashboard.todayLog?.id, dashboard.todayLog?.updatedAt]);
+  }, [
+    dashboard.today,
+    dashboard.todayLog?.id,
+    dashboard.todayLog?.updatedAt,
+  ]);
   useEffect(() => {
     setGoalTitle(dashboard.goal?.title ?? "");
     setGoalTasks(dashboard.goal?.tasks ?? []);
@@ -456,8 +514,12 @@ function StudentPage({
 
   const saveAnswers = () =>
     answersMutation.mutate({ logDate: dashboard.today, answers });
-  const changeAnswer = (key: string, value: string) =>
+  const changeAnswer = (key: string, value: string) => {
+    if (answers[key] === value) return;
+    hasUnsavedAnswersRef.current = true;
     setAnswers(current => ({ ...current, [key]: value }));
+    setHasUnsavedAnswers(true);
+  };
   const saveGoal = () => {
     if (goalTitle.trim().length < 2 || goalTasks.length === 0) {
       toast.error("اكتب هدفًا وأضف خطوة واحدة على الأقل");
@@ -480,7 +542,7 @@ function StudentPage({
   };
 
   return (
-    <main className="page-wrap">
+    <main className="page-wrap student-page">
       <div className="welcome-row">
         <div>
           <span className="eyebrow">
@@ -505,9 +567,18 @@ function StudentPage({
               سجّل ما أنجزته بصدق وهدوء. كل خطوة طيبة لها أثر، ولا تظهر يومياتك
               للطلاب الآخرين.
             </p>
+            <p className="student-progress-message" aria-live="polite">
+              {progressMessage}
+            </p>
           </div>
           <div
             className="progress-ring"
+            role="progressbar"
+            aria-label="إنجازات اليوم"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={completionPercent}
+            aria-valuetext={`${completedCount} من ${enabledItems.length} أعمال مكتملة`}
             style={
               { "--progress": `${completionPercent * 3.6}deg` } as CSSProperties
             }
@@ -524,7 +595,7 @@ function StudentPage({
           </div>
           <div className="stat-line">
             <span>خطوات هدف الأسبوع</span>
-            <span className="stat-value">
+            <span className="stat-value" aria-live="polite">
               {goalTasks.filter(task => task.done).length} من {goalTasks.length}
             </span>
           </div>
@@ -537,18 +608,39 @@ function StudentPage({
         </div>
       </section>
 
+      <div
+        className="student-save-bar"
+        role="region"
+        aria-label="حفظ التقدم اليومي"
+      >
+        <p className="student-save-status" role="status" aria-live="polite">
+          {saveStatusMessage}
+        </p>
+        <button
+          className="button button-primary student-save-button"
+          type="button"
+          onClick={saveAnswers}
+          disabled={answersMutation.isPending}
+        >
+          {answersMutation.isPending ? "جارٍ الحفظ…" : "احفظ إجابات اليوم"}
+        </button>
+      </div>
+
       {enabledItems.some(item => item.key === "story") && (
         <section className="paper-card story-card">
           <div className="story-label">
-            <BookOpen size={17} /> قصة اليوم <span>الحكاية {storyNumber}</span>
+            <BookOpen size={17} aria-hidden="true" /> قصة اليوم <span>الحكاية {storyNumber}</span>
           </div>
           <h2>{story.title}</h2>
           <p>{story.body}</p>
           <div className="story-takeaway">
-            <Sparkles size={16} /> {story.takeaway}
+            <Sparkles size={16} aria-hidden="true" /> {story.takeaway}
           </div>
           <p className="story-note">حكاية تربوية قصيرة من نسج الخيال.</p>
           <button
+            type="button"
+            aria-pressed={answers.story === "done"}
+            disabled={answersMutation.isPending}
             className={`button ${answers.story === "done" ? "button-outline" : "button-primary"}`}
             onClick={() => changeAnswer("story", "done")}
           >
@@ -569,11 +661,11 @@ function StudentPage({
           <section key={category}>
             <h3 className="category-title">
               {category === "worship" ? (
-                <MoonStar size={18} />
+                <MoonStar size={18} aria-hidden="true" />
               ) : category === "learning" ? (
-                <BookOpen size={18} />
+                <BookOpen size={18} aria-hidden="true" />
               ) : (
-                <Users size={18} />
+                <Users size={18} aria-hidden="true" />
               )}
               {CATEGORY_LABELS[category]}
             </h3>
@@ -604,11 +696,16 @@ function StudentPage({
                       {item.response === "yesno" ? (
                         item.choices.map(choice => (
                           <button
+                            type="button"
                             key={choice.value}
+                            aria-pressed={answers[item.key] === choice.value}
+                            disabled={answersMutation.isPending}
                             className={`choice-btn ${answers[item.key] === choice.value ? (choice.value === "done" ? "active-yes" : "active-no") : ""}`}
                             onClick={() => changeAnswer(item.key, choice.value)}
                           >
-                            {choice.value === "done" && <Check size={15} />} {" "}
+                            {choice.value === "done" && (
+                              <Check size={15} aria-hidden="true" />
+                            )} {" "}
                             {choice.label}
                           </button>
                         ))
@@ -617,6 +714,7 @@ function StudentPage({
                           aria-label={`الإجابة عن ${item.title}`}
                           className="choice-select"
                           value={answers[item.key] ?? ""}
+                          disabled={answersMutation.isPending}
                           onChange={event =>
                             changeAnswer(item.key, event.target.value)
                           }
@@ -720,7 +818,7 @@ function StudentPage({
             onClick={saveGoal}
             disabled={goalMutation.isPending}
           >
-            <Target size={17} />
+            <Target size={17} aria-hidden="true" />
             {goalMutation.isPending ? "جارٍ الحفظ…" : "احفظ هدفي الأسبوعي"}
           </button>
         </div>
@@ -763,17 +861,6 @@ function StudentPage({
           </p>
         )}
       </section>
-      <div
-        style={{ display: "flex", justifyContent: "center", marginTop: "1rem" }}
-      >
-        <button
-          className="button button-primary"
-          onClick={saveAnswers}
-          disabled={answersMutation.isPending}
-        >
-          {answersMutation.isPending ? "جارٍ الحفظ…" : "احفظ إجابات اليوم"}
-        </button>
-      </div>
       <p className="footer-note">
         برنامج عبادي وتربوي بإشراف جامع السمانة · التزامك رحلة شخصية
       </p>
