@@ -18,6 +18,7 @@ import {
   normalizeUsername,
   STUDENT_REGISTRATION_PASSWORD_LENGTH,
 } from "../../../shared/auth";
+import { FocusActivityStatistics } from "@/components/FocusActivityStatistics";
 import {
   BookOpen,
   Check,
@@ -34,7 +35,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from
 import { toast } from "sonner";
 
 type View = "student" | "admin";
-type AdminTab = "report" | "students" | "settings";
+type AdminTab = "report" | "stats" | "students" | "settings";
 type Answers = Record<string, string>;
 type RosterRow = {
   userId: number;
@@ -971,7 +972,7 @@ function AdminPage({
     grade: "1",
     active: true,
   });
-  const reportInput = {
+  const reportFilters = {
     ...(filters.from ? { from: filters.from } : {}),
     ...(filters.to ? { to: filters.to } : {}),
     ...(filters.stage !== "all"
@@ -979,17 +980,25 @@ function AdminPage({
       : {}),
     ...(filters.grade !== "all" ? { grade: filters.grade } : {}),
     ...(filters.userId !== "all" ? { userId: Number(filters.userId) } : {}),
-    ...(filters.activity !== "all" ? { activity: filters.activity } : {}),
     limit: 5000,
+  };
+  const reportInput = {
+    ...reportFilters,
+    ...(filters.activity !== "all" ? { activity: filters.activity } : {}),
   };
   const reportQuery = trpc.admin.report.useQuery(reportInput, {
     enabled: tab === "report",
   });
+  const focusStatisticsQuery = trpc.admin.focusStatistics.useQuery(
+    reportFilters,
+    { enabled: tab === "stats" }
+  );
   const updateStudent = trpc.admin.updateStudent.useMutation({
     onSuccess: () => {
       toast.success("تم حفظ بيانات الطالب");
       utils.admin.roster.invalidate();
       utils.admin.report.invalidate();
+      utils.admin.focusStatistics.invalidate();
     },
     onError: error => toast.error(error.message),
   });
@@ -1082,6 +1091,7 @@ function AdminPage({
         {(
           [
             ["report", "الإحصاءات والتقارير"],
+            ["stats", "بر الوالدين والجوال"],
             ["students", "الطلاب"],
             ["settings", "إعدادات البرنامج"],
           ] as Array<[AdminTab, string]>
@@ -1089,6 +1099,7 @@ function AdminPage({
           <button
             key={key}
             className={`tab-button ${tab === key ? "active" : ""}`}
+            aria-pressed={tab === key}
             onClick={() => setTab(key)}
           >
             {label}
@@ -1097,37 +1108,41 @@ function AdminPage({
       </nav>
       {tab === "students" && <StudentInviteManager />}
 
-      {tab === "report" && (
+      {(tab === "report" || tab === "stats") && (
         <>
-          <section className="overview-grid" style={{ marginBottom: "1rem" }}>
-            <div className="paper-card card-pad stats-card">
-              <div className="stat-line">
-                <span>حسابات في القائمة</span>
-                <span className="stat-value">{roster.length}</span>
+          {tab === "report" && (
+            <section className="overview-grid" style={{ marginBottom: "1rem" }}>
+              <div className="paper-card card-pad stats-card">
+                <div className="stat-line">
+                  <span>حسابات في القائمة</span>
+                  <span className="stat-value">{roster.length}</span>
+                </div>
+                <div className="stat-line">
+                  <span>ملفات طلاب مفعّلة</span>
+                  <span className="stat-value">{activeProfiles}</span>
+                </div>
+                <div className="stat-line">
+                  <span>إجابات منجزة في النتائج المعروضة</span>
+                  <span className="stat-value">{logsDone}</span>
+                </div>
               </div>
-              <div className="stat-line">
-                <span>ملفات طلاب مفعّلة</span>
-                <span className="stat-value">{activeProfiles}</span>
+              <div className="paper-card card-pad">
+                <span className="eyebrow">ملخص آمن</span>
+                <h3 style={{ color: "var(--navy)" }}>
+                  تابع التقدّم، لا المقارنة
+                </h3>
+                <p className="muted" style={{ lineHeight: 1.8, marginBottom: 0 }}>
+                  تُستخدم الأرقام لمساندة الطلاب وتحسين البرنامج، لا لنشر ترتيب
+                  بينهم.
+                </p>
               </div>
-              <div className="stat-line">
-                <span>إجابات منجزة في النتائج المعروضة</span>
-                <span className="stat-value">{logsDone}</span>
-              </div>
-            </div>
-            <div className="paper-card card-pad">
-              <span className="eyebrow">ملخص آمن</span>
-              <h3 style={{ color: "var(--navy)" }}>
-                تابع التقدّم، لا المقارنة
-              </h3>
-              <p className="muted" style={{ lineHeight: 1.8, marginBottom: 0 }}>
-                تُستخدم الأرقام لمساندة الطلاب وتحسين البرنامج، لا لنشر ترتيب
-                بينهم.
-              </p>
-            </div>
-          </section>
+            </section>
+          )}
           <section className="paper-card card-pad">
             <p className="muted" style={{ marginTop: 0, fontSize: ".78rem" }}>
-              تظهر أحدث ٥٬٠٠٠ إجابة مطابقة للمرشحات.
+              {tab === "stats"
+                ? "تعتمد الإحصاءات على بر الوالدين ووقت الجوال مع مرشحات التاريخ والمرحلة والصف والطالب."
+                : "تظهر أحدث ٥٬٠٠٠ إجابة مطابقة للمرشحات."}
             </p>
             <div className="filters">
               <div className="field">
@@ -1217,88 +1232,107 @@ function AdminPage({
                     ))}
                 </select>
               </div>
-              <button
-                className="button button-outline"
-                onClick={() => exportCsv(filteredLogs)}
-              >
-                {" "}
-                <Download size={16} /> CSV
-              </button>
+              {tab === "report" && (
+                <button
+                  className="button button-outline"
+                  onClick={() => exportCsv(filteredLogs)}
+                >
+                  <Download size={16} /> CSV
+                </button>
+              )}
             </div>
-            <div
-              className="field"
-              style={{ maxWidth: 320, marginTop: ".5rem" }}
-            >
-              <label>تصفية حسب العمل المسجّل</label>
-              <select
-                className="filter-control"
-                value={filters.activity}
-                onChange={event =>
-                  setFilters(current => ({
-                    ...current,
-                    activity: event.target.value,
-                  }))
-                }
+            {tab === "report" && (
+              <div
+                className="field"
+                style={{ maxWidth: 320, marginTop: ".5rem" }}
               >
-                <option value="all">كل الأعمال</option>
-                {programItems.map(item => (
-                  <option key={item.key} value={item.key}>
-                    {item.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>التاريخ</th>
-                    <th>الطالب</th>
-                    <th>المرحلة / الصف</th>
-                    <th>الأعمال المسجلة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLogs.map(row => (
-                    <tr key={row.id}>
-                      <td>{row.logDate}</td>
-                      <td>{row.studentName ?? "—"}</td>
-                      <td>
-                        {row.stage
-                          ? `${stageNames[row.stage]} · ${row.grade ?? ""}`
-                          : "—"}
-                      </td>
-                      <td>
-                        {Object.entries(row.answers ?? {}).map(
-                          ([key, value]) => {
-                            const item = programItems.find(
-                              entry => entry.key === key
-                            );
-                            return (
-                              <span
-                                className="pill"
-                                key={key}
-                                style={{ margin: "0 .15rem .2rem" }}
-                              >
-                                {item?.title ?? key}: {answerText(value, item)}
-                              </span>
-                            );
-                          }
-                        )}
-                      </td>
-                    </tr>
+                <label>تصفية حسب العمل المسجّل</label>
+                <select
+                  className="filter-control"
+                  value={filters.activity}
+                  onChange={event =>
+                    setFilters(current => ({
+                      ...current,
+                      activity: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="all">كل الأعمال</option>
+                  {programItems.map(item => (
+                    <option key={item.key} value={item.key}>
+                      {item.title}
+                    </option>
                   ))}
-                </tbody>
-              </table>
-              {reportQuery.isLoading && (
-                <p className="empty-state">جارٍ تحميل التقرير…</p>
-              )}
-              {!reportQuery.isLoading && filteredLogs.length === 0 && (
-                <p className="empty-state">
-                  لا توجد إجابات مطابقة للمرشّحات بعد.
+                </select>
+              </div>
+            )}
+            {tab === "stats" ? (
+              focusStatisticsQuery.error ? (
+                <p className="error-box" role="alert">
+                  تعذر تحميل الإحصاءات: {focusStatisticsQuery.error.message}
                 </p>
-              )}
-            </div>
+              ) : focusStatisticsQuery.isFetching ? (
+                <p className="empty-state">جارٍ تجهيز الإحصاءات…</p>
+              ) : focusStatisticsQuery.data ? (
+                <FocusActivityStatistics
+                  statistics={focusStatisticsQuery.data}
+                />
+              ) : (
+                <p className="empty-state">لم تصل بيانات الإحصاءات بعد.</p>
+              )
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>التاريخ</th>
+                      <th>الطالب</th>
+                      <th>المرحلة / الصف</th>
+                      <th>الأعمال المسجلة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLogs.map(row => (
+                      <tr key={row.id}>
+                        <td>{row.logDate}</td>
+                        <td>{row.studentName ?? "—"}</td>
+                        <td>
+                          {row.stage
+                            ? `${stageNames[row.stage]} · ${row.grade ?? ""}`
+                            : "—"}
+                        </td>
+                        <td>
+                          {Object.entries(row.answers ?? {}).map(
+                            ([key, value]) => {
+                              const item = programItems.find(
+                                entry => entry.key === key
+                              );
+                              return (
+                                <span
+                                  className="pill"
+                                  key={key}
+                                  style={{ margin: "0 .15rem .2rem" }}
+                                >
+                                  {item?.title ?? key}: {answerText(value, item)}
+                                </span>
+                              );
+                            }
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {reportQuery.isLoading && (
+                  <p className="empty-state">جارٍ تحميل التقرير…</p>
+                )}
+                {!reportQuery.isLoading && filteredLogs.length === 0 && (
+                  <p className="empty-state">
+                    لا توجد إجابات مطابقة للمرشّحات بعد.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
         </>
       )}

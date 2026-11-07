@@ -40,6 +40,9 @@
   --cream: #f7f3e8;
   --paper: #fffdf8;
   --green: #477a62;
+  --status-green: #34845a;
+  --status-yellow: #e6ad23;
+  --status-red: #c94c45;
   --background: #f2eee4;
   --foreground: #24384b;
   --card: #fffdf8;
@@ -111,9 +114,9 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .task-title-row { display: flex; align-items: center; gap: .5rem; }
 .task-name { margin: 0; color: #293d50; font-size: .95rem; font-weight: 700; }
 .answer-indicator { display: inline-block; flex: 0 0 14px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid transparent; }
-.answer-indicator.green { background: #34845a; box-shadow: 0 0 0 2px rgb(52 132 90 / 14%); }
-.answer-indicator.yellow { background: #e6ad23; box-shadow: 0 0 0 2px rgb(230 173 35 / 18%); }
-.answer-indicator.red { background: #c94c45; box-shadow: 0 0 0 2px rgb(201 76 69 / 14%); }
+.answer-indicator.green { background: var(--status-green); box-shadow: 0 0 0 2px rgb(52 132 90 / 14%); }
+.answer-indicator.yellow { background: var(--status-yellow); box-shadow: 0 0 0 2px rgb(230 173 35 / 18%); }
+.answer-indicator.red { background: var(--status-red); box-shadow: 0 0 0 2px rgb(201 76 69 / 14%); }
 .answer-indicator.unanswered { background: #d7dce0; border-color: #b8c0c7; }
 .task-hint { display: block; color: var(--muted-foreground); font-size: .78rem; margin-top: .16rem; }
 .task-controls { flex: 0 0 auto; display: flex; align-items: center; gap: .35rem; }
@@ -174,8 +177,27 @@ tr:last-child td { border-bottom: 0; }
 .footer-note { margin-top: 2rem; text-align: center; color: var(--muted-foreground); font-size: .75rem; }
 .loading { min-height: 12rem; display: grid; place-items: center; color: var(--muted-foreground); }
 .error-box { padding: .8rem; border-radius: .75rem; color: #8b4738; background: #f7e9e2; }
+.focus-stat-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.focus-stat-card { padding: 1rem; border: 1px solid var(--border); border-radius: .9rem; background: linear-gradient(145deg,#fffdf8,#fbf8ef); }
+.focus-stat-heading { display: flex; align-items: center; gap: .65rem; min-height: 2.8rem; }
+.focus-stat-icon { width: 2.5rem; height: 2.5rem; flex: 0 0 2.5rem; display: grid; place-items: center; border-radius: .8rem; background: #f4e4ad; color: var(--navy); }
+.focus-stat-heading h3 { margin: .18rem 0 0; color: var(--navy); font-size: .95rem; }
+.focus-stat-highlight { display: flex; align-items: baseline; flex-wrap: wrap; gap: .45rem .65rem; margin: .8rem 0; padding: .7rem .8rem; border-radius: .7rem; background: #f7f3e8; color: var(--navy); }
+.focus-stat-highlight strong { color: var(--gold-dark); font-size: 1.6rem; line-height: 1.2; }
+.focus-stat-highlight span { color: var(--muted-foreground); font-size: .8rem; }
+.focus-stat-row { display: grid; gap: .35rem; margin: .75rem 0; }
+.focus-stat-row-title { display: flex; justify-content: space-between; gap: .5rem; color: #526678; font-size: .82rem; }
+.focus-stat-row-title strong { color: var(--navy); white-space: nowrap; }
+.focus-stat-track { height: .65rem; overflow: hidden; border-radius: 999px; background: #ece7dc; }
+.focus-stat-track span { display: block; height: 100%; border-radius: inherit; transition: width .2s ease; }
+.focus-stat-note { margin: .85rem 0 0; padding-top: .65rem; border-top: 1px dashed var(--border); color: var(--muted-foreground); font-size: .76rem; }
+.focus-stat-footnote { margin: .75rem 0 0; font-size: .78rem; line-height: 1.8; }
+.focus-stat-content .eyebrow { color: #6c4b00; }
+.focus-stat-content .focus-stat-highlight span, .focus-stat-content .focus-stat-row-title, .focus-stat-content .focus-stat-note, .focus-stat-content .focus-stat-footnote { color: #536273; }
+.focus-stat-content .focus-stat-row-title strong { color: var(--navy); }
 @media (max-width: 760px) {
   .overview-grid, .goal-layout { grid-template-columns: 1fr; }
+  .focus-stat-grid { grid-template-columns: 1fr; }
   .invite-form { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .page-wrap { padding: 1rem .8rem 3rem; }
   .topbar-inner { padding: .8rem; }

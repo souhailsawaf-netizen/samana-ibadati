@@ -18,6 +18,7 @@ import {
   PROGRAM_GRADES,
 } from "../shared/program";
 import type { ProgramItem } from "../shared/program";
+import { summarizeFocusActivities } from "../shared/focus-statistics";
 import {
   getAdminLogs,
   getAdminInvites,
@@ -86,6 +87,15 @@ const programItemSchema = z.object({
     .min(2)
     .max(6),
   enabled: z.boolean(),
+});
+const adminReportFiltersSchema = z.object({
+  from: dateString.optional(),
+  to: dateString.optional(),
+  userId: z.number().int().positive().optional(),
+  stage: stageSchema.optional(),
+  grade: z.string().max(40).optional(),
+  activity: z.string().max(64).optional(),
+  limit: z.number().int().min(1).max(5000).optional(),
 });
 
 function weekStartFor(date: Date) {
@@ -475,19 +485,7 @@ export const appRouter = router({
         return { success: true };
       }),
     report: adminProcedure
-      .input(
-        z
-          .object({
-            from: dateString.optional(),
-            to: dateString.optional(),
-            userId: z.number().int().positive().optional(),
-            stage: stageSchema.optional(),
-            grade: z.string().max(40).optional(),
-            activity: z.string().max(64).optional(),
-            limit: z.number().int().min(1).max(5000).optional(),
-          })
-          .optional()
-      )
+      .input(adminReportFiltersSchema.optional())
       .query(async ({ input }) => {
         if (
           input?.activity &&
@@ -502,6 +500,14 @@ export const appRouter = router({
           getAdminLogs(input ?? {}),
         ]);
         return { roster, logs };
+      }),
+    focusStatistics: adminProcedure
+      .input(
+        adminReportFiltersSchema.omit({ activity: true }).optional()
+      )
+      .query(async ({ input }) => {
+        const logs = await getAdminLogs(input ?? {});
+        return summarizeFocusActivities(logs);
       }),
     updateStudent: adminProcedure
       .input(

@@ -22,6 +22,19 @@ export function isGradeForStage(stage: ProgramStage, grade: string): boolean {
 }
 
 export type AnswerValue = string;
+export const FOCUS_ACTIVITY_KEYS = {
+  parents: "parents",
+  phone: "phone",
+} as const;
+export const YES_NO_ANSWER_VALUES = {
+  done: "done",
+  missed: "missed",
+} as const;
+export const PHONE_ANSWER_VALUES = {
+  under30: "under30",
+  withinTarget: "30to60",
+  over60: "over60",
+} as const;
 export type ProgramChoice = { value: string; label: string };
 
 export type ProgramItem = {
@@ -43,15 +56,20 @@ export function getAnswerIndicator(
   itemKey: string,
   value?: string
 ): AnswerIndicator | null {
-  if (itemKey === "parents") {
-    if (value === "done") return { tone: "green", label: "أنجزت بر الوالدين" };
-    if (value === "missed") return { tone: "red", label: "لم أنجز بر الوالدين" };
+  if (itemKey === FOCUS_ACTIVITY_KEYS.parents) {
+    if (value === YES_NO_ANSWER_VALUES.done)
+      return { tone: "green", label: "أنجزت بر الوالدين" };
+    if (value === YES_NO_ANSWER_VALUES.missed)
+      return { tone: "red", label: "لم أنجز بر الوالدين" };
   }
 
-  if (itemKey === "phone") {
-    if (value === "30to60") return { tone: "green", label: "وقت الجوال ضمن المدة المستهدفة" };
-    if (value === "under30") return { tone: "yellow", label: "وقت الجوال أقل من المدة المستهدفة" };
-    if (value === "over60") return { tone: "red", label: "وقت الجوال تجاوز ساعة" };
+  if (itemKey === FOCUS_ACTIVITY_KEYS.phone) {
+    if (value === PHONE_ANSWER_VALUES.withinTarget)
+      return { tone: "green", label: "وقت الجوال ضمن المدة المستهدفة" };
+    if (value === PHONE_ANSWER_VALUES.under30)
+      return { tone: "yellow", label: "وقت الجوال أقل من المدة المستهدفة" };
+    if (value === PHONE_ANSWER_VALUES.over60)
+      return { tone: "red", label: "وقت الجوال تجاوز ساعة" };
   }
 
   return null;
@@ -60,8 +78,8 @@ export function getAnswerIndicator(
 export type GoalTask = { id: string; title: string; done: boolean };
 
 const yesNo = (): ProgramChoice[] => [
-  { value: "done", label: "أنجزت" },
-  { value: "missed", label: "لم أنجز" },
+  { value: YES_NO_ANSWER_VALUES.done, label: "أنجزت" },
+  { value: YES_NO_ANSWER_VALUES.missed, label: "لم أنجز" },
 ];
 const study = (): ProgramChoice[] => [
   { value: "less1", label: "أقل من ساعة" },
@@ -76,9 +94,9 @@ const words = (): ProgramChoice[] => [
   { value: "3", label: "٣ كلمات" },
 ];
 const phone = (): ProgramChoice[] => [
-  { value: "under30", label: "أقل من ٣٠ دقيقة" },
-  { value: "30to60", label: "٣٠–٦٠ دقيقة" },
-  { value: "over60", label: "أكثر من ساعة" },
+  { value: PHONE_ANSWER_VALUES.under30, label: "أقل من ٣٠ دقيقة" },
+  { value: PHONE_ANSWER_VALUES.withinTarget, label: "٣٠–٦٠ دقيقة" },
+  { value: PHONE_ANSWER_VALUES.over60, label: "أكثر من ساعة" },
 ];
 
 export const DEFAULT_PROGRAM_ITEMS: ProgramItem[] = [
@@ -173,7 +191,7 @@ export const DEFAULT_PROGRAM_ITEMS: ProgramItem[] = [
     enabled: true,
   },
   {
-    key: "phone",
+    key: FOCUS_ACTIVITY_KEYS.phone,
     title: "وقت اللعب على الجوال",
     category: "home",
     hint: "من نصف ساعة إلى ساعة",
@@ -182,7 +200,7 @@ export const DEFAULT_PROGRAM_ITEMS: ProgramItem[] = [
     enabled: true,
   },
   {
-    key: "parents",
+    key: FOCUS_ACTIVITY_KEYS.parents,
     title: "بر الوالدين",
     category: "home",
     hint: "عمل طيب اليوم",
