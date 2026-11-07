@@ -26,6 +26,28 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+export const localAccounts = mysqlTable(
+  "local_accounts",
+  {
+    userId: int("userId")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    username: varchar("username", { length: 32 }).notNull(),
+    passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+    tokenVersion: int("tokenVersion").notNull().default(0),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    passwordUpdatedAt: timestamp("passwordUpdatedAt").defaultNow().notNull(),
+  },
+  table => ({ usernameIdx: uniqueIndex("local_accounts_username_idx").on(table.username) })
+);
+
+export const authAttempts = mysqlTable("auth_attempts", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  attempts: int("attempts").notNull().default(0),
+  windowStartedAt: timestamp("windowStartedAt").notNull(),
+  lockedUntil: timestamp("lockedUntil"),
+});
+
 export const studentProfiles = mysqlTable(
   "student_profiles",
   {

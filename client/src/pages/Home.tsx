@@ -1,4 +1,3 @@
-import { startLogin } from "@/const";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import {
@@ -6,6 +5,7 @@ import {
   DEFAULT_PROGRAM_ITEMS,
   GRADES_BY_STAGE,
   PROGRAM_GRADES,
+  getAnswerIndicator,
   isGradeForStage,
   type ProgramGrade,
   type ProgramItem,
@@ -16,6 +16,7 @@ import {
   BookOpen,
   Check,
   Download,
+  KeyRound,
   LogOut,
   MoonStar,
   ShieldCheck,
@@ -23,7 +24,7 @@ import {
   Target,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { toast } from "sonner";
 
 type View = "student" | "admin";
@@ -129,32 +130,135 @@ function Header({
   setView: (view: View) => void;
   logout: () => void;
 }) {
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const changePassword = trpc.auth.changePassword.useMutation({
+    onSuccess: () => {
+      toast.success("تم تحديث كلمة المرور");
+      setPasswordDialogOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const submitPasswordChange = (event: FormEvent) => {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) {
+      toast.error("تأكد من تطابق كلمتي المرور الجديدتين");
+      return;
+    }
+    changePassword.mutate({ currentPassword, newPassword });
+  };
+
   return (
-    <header className="topbar">
-      <div className="topbar-inner">
-        <Brand />
-        <div className="topbar-actions">
-          {isAdmin && (
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Brand />
+          <div className="topbar-actions">
+            {isAdmin && (
+              <button
+                className="button button-secondary"
+                onClick={() => setView(view === "admin" ? "student" : "admin")}
+              >
+                <ShieldCheck size={17} />
+                {view === "admin" ? "واجهة الطالب" : "لوحة المشرف"}
+              </button>
+            )}
+            <span className="brand-subtitle">{userName}</span>
             <button
               className="button button-secondary"
-              onClick={() => setView(view === "admin" ? "student" : "admin")}
+              onClick={() => setPasswordDialogOpen(true)}
             >
-              <ShieldCheck size={17} />
-              {view === "admin" ? "واجهة الطالب" : "لوحة المشرف"}
+              <KeyRound size={17} />
+              <span className="desktop-label">كلمة المرور</span>
             </button>
-          )}
-          <span className="brand-subtitle">{userName}</span>
-          <button
-            className="button button-secondary"
-            onClick={logout}
-            aria-label="تسجيل الخروج"
-          >
-            <LogOut size={17} />
-            <span className="desktop-label">خروج</span>
-          </button>
+            <button
+              className="button button-secondary"
+              onClick={logout}
+              aria-label="تسجيل الخروج"
+            >
+              <LogOut size={17} />
+              <span className="desktop-label">خروج</span>
+            </button>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+      {passwordDialogOpen && (
+        <div
+          className="change-password-overlay"
+          role="presentation"
+          onMouseDown={event => {
+            if (event.target === event.currentTarget)
+              setPasswordDialogOpen(false);
+          }}
+        >
+          <section
+            className="paper-card change-password-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="change-password-title"
+          >
+            <button
+              type="button"
+              className="dialog-close"
+              aria-label="إغلاق"
+              onClick={() => setPasswordDialogOpen(false)}
+            >
+              ×
+            </button>
+            <span className="eyebrow">أمان الحساب</span>
+            <h2 id="change-password-title">تغيير كلمة المرور</h2>
+            <p className="muted">اختر كلمة مرور من ١٠ أحرف على الأقل.</p>
+            <form className="login-form" onSubmit={submitPasswordChange}>
+              <label htmlFor="current-password">كلمة المرور الحالية</label>
+              <input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                minLength={1}
+                maxLength={128}
+                required
+                value={currentPassword}
+                onChange={event => setCurrentPassword(event.target.value)}
+              />
+              <label htmlFor="new-password">كلمة المرور الجديدة</label>
+              <input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={10}
+                maxLength={128}
+                required
+                value={newPassword}
+                onChange={event => setNewPassword(event.target.value)}
+              />
+              <label htmlFor="confirm-password">تأكيد كلمة المرور الجديدة</label>
+              <input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={10}
+                maxLength={128}
+                required
+                value={confirmPassword}
+                onChange={event => setConfirmPassword(event.target.value)}
+              />
+              <button
+                className="button button-primary"
+                type="submit"
+                disabled={changePassword.isPending}
+              >
+                {changePassword.isPending ? "جارٍ التحديث…" : "حفظ كلمة المرور"}
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -164,48 +268,76 @@ function ProfileSetup({
   pending,
 }: {
   name: string;
-  onSave: (value: { code: string }) => void;
+  onSave: (value: {
+    displayName: string;
+    stage: ProgramStage;
+    grade: ProgramGrade;
+  }) => void;
   pending: boolean;
 }) {
-  const [code, setCode] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [stage, setStage] = useState<ProgramStage>("primary");
+  const [grade, setGrade] = useState<ProgramGrade>("1");
   return (
     <div className="page-wrap">
       <div className="paper-card card-pad profile-form">
-        <span className="eyebrow">الانضمام إلى البرنامج</span>
-        <h1 className="page-title">أدخل رمز الدعوة</h1>
+        <span className="eyebrow">خطوة واحدة للبدء</span>
+        <h1 className="page-title">أكمل ملف الطالب</h1>
         <p className="muted">
-          مرحبًا {name || "بك"}. خذ الرمز من مشرف جامع السمانة لإكمال تسجيلك.
-          الاسم والصف يحددهما المشرف، وملفك لا يراه الطلاب الآخرون.
+          مرحبًا {name || "بك"}. اختر اسمك المعروض ومرحلتك وصفك؛ هذه المعلومات
+          تساعد المشرف على تنظيم البرنامج، ولا يراها الطلاب الآخرون.
         </p>
         <form
           onSubmit={event => {
             event.preventDefault();
-            onSave({ code: code.trim().toUpperCase() });
+            onSave({ displayName: displayName.trim(), stage, grade });
           }}
         >
           <div className="field">
-            <label>رمز الدعوة</label>
+            <label htmlFor="student-display-name">الاسم الذي سيظهر في البرنامج</label>
             <input
+              id="student-display-name"
               required
-              minLength={12}
-              maxLength={12}
-              autoCapitalize="characters"
-              autoComplete="one-time-code"
-              value={code}
-              onChange={event =>
-                setCode(
-                  event.target.value.toUpperCase().replace(/[^A-F0-9]/g, "")
-                )
-              }
-              placeholder="مثال: 8F1A03B9D2C4"
+              minLength={2}
+              maxLength={160}
+              autoComplete="name"
+              value={displayName}
+              onChange={event => setDisplayName(event.target.value)}
             />
+          </div>
+          <div className="field">
+            <label htmlFor="student-stage">المرحلة الدراسية</label>
+            <select
+              id="student-stage"
+              value={stage}
+              onChange={event => {
+                const nextStage = event.target.value as ProgramStage;
+                setStage(nextStage);
+                setGrade(GRADES_BY_STAGE[nextStage][0]);
+              }}
+            >
+              <option value="primary">ابتدائي</option>
+              <option value="middle">إعدادي</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="student-grade">الصف</label>
+            <select
+              id="student-grade"
+              value={grade}
+              onChange={event => setGrade(event.target.value as ProgramGrade)}
+            >
+              {GRADES_BY_STAGE[stage].map(value => (
+                <option key={value} value={value}>الصف {value}</option>
+              ))}
+            </select>
           </div>
           <button
             className="button button-primary"
             type="submit"
             disabled={pending}
           >
-            {pending ? "جارٍ التحقق…" : "انضم إلى البرنامج"}
+            {pending ? "جارٍ حفظ الملف…" : "ابدأ برنامجك"}
           </button>
         </form>
       </div>
@@ -221,9 +353,9 @@ function StudentPage({
   userName: string;
 }) {
   const utils = trpc.useUtils();
-  const profileMutation = trpc.student.claimInvite.useMutation({
+  const profileMutation = trpc.student.createProfile.useMutation({
     onSuccess: () => {
-      toast.success("تم تفعيل ملفك");
+      toast.success("اكتمل ملفك، أهلًا بك في البرنامج!");
       utils.student.dashboard.invalidate();
     },
     onError: error => toast.error(error.message),
@@ -439,47 +571,61 @@ function StudentPage({
               {CATEGORY_LABELS[category]}
             </h3>
             <div className="task-list">
-              {sectionItems.map(item => (
-                <article
-                  key={item.key}
-                  className={`task-row ${isComplete(item, answers[item.key]) ? "done" : ""}`}
-                >
-                  <div className="task-copy">
-                    <p className="task-name">{item.title}</p>
-                    <span className="task-hint">{item.hint}</span>
-                  </div>
-                  <div className="task-controls">
-                    {item.response === "yesno" ? (
-                      item.choices.map(choice => (
-                        <button
-                          key={choice.value}
-                          className={`choice-btn ${answers[item.key] === choice.value ? (choice.value === "done" ? "active-yes" : "active-no") : ""}`}
-                          onClick={() => changeAnswer(item.key, choice.value)}
+              {sectionItems.map(item => {
+                const indicator = getAnswerIndicator(item.key, answers[item.key]);
+                const hasIndicator = item.key === "parents" || item.key === "phone";
+                return (
+                  <article
+                    key={item.key}
+                    className={`task-row ${isComplete(item, answers[item.key]) ? "done" : ""}`}
+                  >
+                    <div className="task-copy">
+                      <div className="task-title-row">
+                        <p className="task-name">{item.title}</p>
+                        {hasIndicator && (
+                          <span
+                            className={`answer-indicator ${indicator?.tone ?? "unanswered"}`}
+                            role="img"
+                            aria-label={indicator?.label ?? "لم يتم اختيار إجابة"}
+                            title={indicator?.label ?? "لم يتم اختيار إجابة"}
+                          />
+                        )}
+                      </div>
+                      <span className="task-hint">{item.hint}</span>
+                    </div>
+                    <div className="task-controls">
+                      {item.response === "yesno" ? (
+                        item.choices.map(choice => (
+                          <button
+                            key={choice.value}
+                            className={`choice-btn ${answers[item.key] === choice.value ? (choice.value === "done" ? "active-yes" : "active-no") : ""}`}
+                            onClick={() => changeAnswer(item.key, choice.value)}
+                          >
+                            {choice.value === "done" && <Check size={15} />} {" "}
+                            {choice.label}
+                          </button>
+                        ))
+                      ) : (
+                        <select
+                          aria-label={`الإجابة عن ${item.title}`}
+                          className="choice-select"
+                          value={answers[item.key] ?? ""}
+                          onChange={event =>
+                            changeAnswer(item.key, event.target.value)
+                          }
                         >
-                          {choice.value === "done" && <Check size={15} />}{" "}
-                          {choice.label}
-                        </button>
-                      ))
-                    ) : (
-                      <select
-                        aria-label={`الإجابة عن ${item.title}`}
-                        className="choice-select"
-                        value={answers[item.key] ?? ""}
-                        onChange={event =>
-                          changeAnswer(item.key, event.target.value)
-                        }
-                      >
-                        <option value="">اختر الإجابة</option>
-                        {item.choices.map(option => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </article>
-              ))}
+                          <option value="">اختر الإجابة</option>
+                          {item.choices.map(option => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </section>
         );
@@ -668,8 +814,8 @@ function StudentInviteManager() {
         <span className="section-count">الرمز يستخدم مرة واحدة</span>
       </div>
       <p className="muted">
-        أدخل اسم الطالب ومرحلته وصفّه. شارك الرمز معه؛ يسجل الدخول بحسابه ثم
-        يدخله للانضمام إلى البرنامج.
+        أدخل اسم الطالب ومرحلته وصفّه. شارك رمز الدعوة معه؛ يختار الطالب اسم
+        المستخدم وكلمة المرور بنفسه عند إنشاء الحساب.
       </p>
       <form
         className="invite-form"
@@ -847,6 +993,14 @@ function AdminPage({
     },
     onError: error => toast.error(error.message),
   });
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const resetPassword = trpc.admin.resetStudentPassword.useMutation({
+    onSuccess: result => {
+      setTemporaryPassword(result.temporaryPassword);
+      toast.success("أُنشئت كلمة مرور مؤقتة؛ اعرضها للطالب الآن");
+    },
+    onError: error => toast.error(error.message),
+  });
   const saveProgram = trpc.admin.saveProgram.useMutation({
     onSuccess: () => {
       toast.success("تم تحديث إعدادات البرنامج");
@@ -873,6 +1027,7 @@ function AdminPage({
 
   const selectStudent = (row: RosterRow) => {
     setSelectedStudent(row);
+    setTemporaryPassword("");
     setStudentForm({
       displayName: row.displayName ?? row.loginName ?? "",
       stage: row.stage ?? "primary",
@@ -1151,8 +1306,8 @@ function AdminPage({
               </span>
             </div>
             <div className="notice" style={{ marginBottom: ".8rem" }}>
-              أنشئ دعوة للطالب أعلاه وشاركه الرمز؛ بعد تسجيل الدخول واستخدام
-              الرمز سيظهر ملفه هنا لإدارة صفه وحالة مشاركته.
+              أنشئ دعوة للطالب أعلاه وشاركه الرمز. ينشئ الطالب اسم المستخدم
+              وكلمة المرور بنفسه، ثم يظهر ملفه هنا لإدارة صفه وحالة مشاركته.
             </div>
             <div className="table-wrap">
               <table>
@@ -1309,6 +1464,41 @@ function AdminPage({
                 <p className="muted" style={{ fontSize: ".78rem" }}>
                   لا يمكن تغيير صلاحية حساب المشرف الحالي من هنا.
                 </p>
+                {selectedStudent.role !== "admin" && (
+                  <>
+                    <button
+                      className="button button-outline"
+                      onClick={() =>
+                        resetPassword.mutate({ userId: selectedStudent.userId })
+                      }
+                      disabled={resetPassword.isPending}
+                    >
+                      {resetPassword.isPending
+                        ? "جارٍ الإنشاء…"
+                        : "إصدار كلمة مرور مؤقتة للطالب"}
+                    </button>
+                    {temporaryPassword && (
+                      <div className="invite-code" role="status">
+                        <span>كلمة المرور المؤقتة — تظهر مرة واحدة فقط</span>
+                        <strong dir="ltr">{temporaryPassword}</strong>
+                        <button
+                          className="button button-outline button-small"
+                          onClick={() =>
+                            navigator.clipboard
+                              .writeText(temporaryPassword)
+                              .then(() => toast.success("تم نسخ كلمة المرور"))
+                              .catch(() => toast.error("انسخها يدويًا"))
+                          }
+                        >
+                          نسخ
+                        </button>
+                        <p className="muted" style={{ margin: 0 }}>
+                          شاركها مع الطالب بأمان. بعد مغادرة هذه الصفحة لن تظهر مجددًا.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
               </>
             ) : (
               <p className="muted">اختر اسمًا من القائمة لإدارة ملفه.</p>
@@ -1358,8 +1548,9 @@ function AdminPage({
             </div>
             <div>
               <p className="muted">
-                يمكن تعديل اسم العمل وإرشاده أو إخفاء نشاط. مفاتيح الأعمال
-                الأساسية ثابتة للحفاظ على السجلات السابقة.
+                عدّل نص السؤال وإرشاده وخيارات الإجابة، أو أخفِ النشاط. اضغط حفظ
+                إعدادات البرنامج لتطبيق التغييرات على الجميع. هذه التعديلات
+                تغيّر النصوص الظاهرة فقط ولا تعدّل إجابات الطلاب المحفوظة.
               </p>
               {programItems.map((item, index) => (
                 <div
@@ -1416,7 +1607,7 @@ function AdminPage({
                     }
                   />
                   <details className="choice-editor">
-                    <summary>تعديل نص خيارات الإجابة</summary>
+                    <summary>تعديل نص خيارات الإجابة لهذا السؤال</summary>
                     {item.choices.map((choice, choiceIndex) => (
                       <div className="task-edit-row" key={choice.value}>
                         <span className="pill">{choice.value}</span>
@@ -1481,6 +1672,126 @@ function answerText(value: string, item?: ProgramItem) {
   return labels[value] ?? value;
 }
 
+function LoginPage() {
+  const utils = trpc.useUtils();
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const completeLogin = (user: {
+    id: number;
+    name: string | null;
+    role: "user" | "admin";
+  }) => {
+    utils.auth.me.setData(undefined, user);
+    void utils.invalidate();
+  };
+  const login = trpc.auth.login.useMutation({
+    onSuccess: user => {
+      completeLogin(user);
+      toast.success("تم تسجيل الدخول");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const register = trpc.auth.registerStudent.useMutation({
+    onSuccess: user => {
+      completeLogin(user);
+      toast.success("أُنشئ حسابك بنجاح؛ أكمل بيانات ملفك الآن.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (mode === "login") {
+      login.mutate({ username, password });
+      return;
+    }
+    register.mutate({ username, password });
+  };
+  const pending = login.isPending || register.isPending;
+
+  return (
+    <div className="login-wrap">
+      <section className="paper-card login-card">
+        <div className="login-emblem">
+          <MoonStar size={34} />
+        </div>
+        <span className="eyebrow">متابعة خاصة لكل طالب</span>
+        <h1 className="page-title">خطوة صغيرة اليوم، عادة جميلة غدًا</h1>
+        <p className="muted" style={{ lineHeight: 1.9 }}>
+          دفتر إلكتروني للعبادة والتعلّم والهدف الأسبوعي بإشراف جامع السمانة.
+          بيانات كل طالب خاصة ولا يراها الطلاب الآخرون.
+        </p>
+        <div className="tabs" role="tablist" aria-label="الحساب">
+          <button
+            type="button"
+            className={`tab-button ${mode === "login" ? "active" : ""}`}
+            onClick={() => setMode("login")}
+          >
+            تسجيل الدخول
+          </button>
+          <button
+            type="button"
+            className={`tab-button ${mode === "register" ? "active" : ""}`}
+            onClick={() => setMode("register")}
+          >
+            إنشاء حساب
+          </button>
+        </div>
+        <form onSubmit={submit} className="login-form">
+          <div className="field">
+            <label htmlFor="account-username">اسم المستخدم</label>
+            <input
+              id="account-username"
+              required
+              autoComplete="username"
+              dir="ltr"
+              value={username}
+              onChange={event => setUsername(event.target.value.toLowerCase())}
+              minLength={3}
+              maxLength={32}
+              pattern="[a-z0-9][a-z0-9_-]*"
+              placeholder="مثال: ahmad24"
+            />
+            {mode === "register" && (
+              <span className="task-hint">
+                حروف إنجليزية صغيرة وأرقام وشرطة سفلية فقط.
+              </span>
+            )}
+          </div>
+          <div className="field">
+            <label htmlFor="account-password">كلمة المرور</label>
+            <input
+              id="account-password"
+              required
+              type="password"
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              value={password}
+              onChange={event => setPassword(event.target.value)}
+              minLength={mode === "register" ? 10 : 1}
+              maxLength={128}
+            />
+            {mode === "register" && (
+              <span className="task-hint">
+                استخدم ١٠ أحرف أو أكثر واحفظها في مكان آمن.
+              </span>
+            )}
+          </div>
+          <button className="button button-primary" type="submit" disabled={pending}>
+            {pending
+              ? "جارٍ التحقق…"
+              : mode === "login"
+                ? "دخول آمن"
+                : "إنشاء حساب الطالب"}
+          </button>
+        </form>
+        <p className="footer-note">
+          للتسجيل أدخل اسم مستخدم وكلمة مرور فقط. بعد ذلك أكمل اسمك والمرحلة والصف.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 export default function Home() {
   const auth = useAuth();
   const utils = trpc.useUtils();
@@ -1537,28 +1848,7 @@ export default function Home() {
             <Brand />
           </div>
         </div>
-        <div className="login-wrap">
-          <section className="paper-card login-card">
-            <div className="login-emblem">
-              <MoonStar size={34} />
-            </div>
-            <span className="eyebrow">متابعة خاصة لكل طالب</span>
-            <h1 className="page-title">خطوة صغيرة اليوم، عادة جميلة غدًا</h1>
-            <p className="muted" style={{ lineHeight: 1.9 }}>
-              دفتر إلكتروني لمتابعة العبادة والتعلّم والهدف الأسبوعي، بإشراف
-              جامع السمانة. سجّل الدخول للبدء؛ لن يرى الطالب إلا صفحته وسجله.
-            </p>
-            <button
-              className="button button-primary"
-              onClick={() => startLogin()}
-            >
-              تسجيل الدخول الآمن
-            </button>
-            <p className="footer-note">
-              إذا لم يكن لديك حساب، اطلب من المشرف إرشادك للدخول إلى البرنامج.
-            </p>
-          </section>
-        </div>
+        <LoginPage />
       </div>
     );
 
@@ -1612,10 +1902,29 @@ export default function Home() {
           </div>
         </div>
       ) : dashboardQuery.data ? (
-        <StudentPage
-          dashboard={dashboardQuery.data}
-          userName={auth.user?.name ?? ""}
-        />
+        isAdmin && !dashboardQuery.data.profile ? (
+          <main className="page-wrap">
+            <section className="paper-card card-pad">
+              <span className="eyebrow">حساب المشرف</span>
+              <h1 className="page-title">لا يوجد ملف طالب لهذا الحساب</h1>
+              <p className="muted">
+                حساب المشرف منفصل عن ملفات الطلاب. استخدم لوحة المشرف لإدارة
+                البرنامج والطلاب.
+              </p>
+              <button
+                className="button button-primary"
+                onClick={() => setView("admin")}
+              >
+                العودة إلى لوحة المشرف
+              </button>
+            </section>
+          </main>
+        ) : (
+          <StudentPage
+            dashboard={dashboardQuery.data}
+            userName={auth.user?.name ?? ""}
+          />
+        )
       ) : null}
     </div>
   );

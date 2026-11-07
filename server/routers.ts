@@ -2,6 +2,14 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import {
+  createSessionToken,
+  hashPassword,
+  makeLoginAttemptKey,
+  normalizeUsername,
+  verifyPassword,
+  AUTH_SESSION_MAX_AGE_MS,
+} from "./auth";
+import {
   DEFAULT_PROGRAM_ITEMS,
   isGradeForStage,
   PROGRAM_GRADES,
@@ -18,12 +26,24 @@ import {
   getProgram,
   getStudentHistory,
   getStudentProfile,
+  getUserById,
+  getAuthAccountByUserId,
+  getAuthAccountByUsername,
+  getLoginLockUntil,
+  recordSuccessfulRegistration,
+  recordFailedLogin,
+  clearLoginFailures,
+  ensureInitialAdmin,
+  createStudentAccount,
+  createStudentProfile,
+  updateLocalPassword,
   getWeeklyGoal,
   saveDailyAnswers,
   saveProgram,
   saveWeeklyGoal,
   setUserRole,
   updateStudentProfile,
+  upsertUser,
 } from "./db";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -90,6 +110,24 @@ function isValidAnswer(item: ProgramItem, value: string) {
   return item.choices.some(choice => choice.value === value);
 }
 
+const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3)
+  .max(32)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/, "استخدم حروفًا إنجليزية صغيرة وأرقامًا فقط.");
+const genericLoginError = "اسم المستخدم أو كلمة المرور غير صحيحة، أو أن الحساب مقيد مؤقتًا.";
+let dummyPasswordHash: Promise<string> | undefined;
+
+function sessionCookieOptions(req: Parameters<typeof getSessionCookieOptions>[0]) {
+  return { ...getSessionCookieOptions(req), maxAge: AUTH_SESSION_MAX_AGE_MS };
+}
+
+function publicUser(user: NonNullable<Awaited<ReturnType<typeof getUserById>>>) {
+  return { id: user.id, name: user.name, role: user.role };
+}
+
 async function requireActiveProfile(userId: number) {
   const profile = await getStudentProfile(userId);
   if (!profile || !profile.active) {
@@ -104,12 +142,133 @@ async function requireActiveProfile(userId: number) {
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(({ ctx }) =>
+      ctx.user ? publicUser(ctx.user) : null
+    ),
+    registerStudent: publicProcedure
+      .input(
+        z.object({
+          username: usernameSchema,
+          password: z.string().min(10).max(128),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await ensureInitialAdmin();
+        const registrationIp = ctx.req.ip || ctx.req.socket.remoteAddress || "unknown";
+        const registrationKey = makeLoginAttemptKey("register", registrationIp);
+        const registrationLock = await getLoginLockUntil(registrationKey);
+        if (registrationLock && registrationLock.getTime() > Date.now())
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "توقف التسجيل مؤقتًا؛ حاول مرة أخرى بعد قليل.",
+          });
+        const result = await createStudentAccount({
+          username: normalizeUsername(input.username),
+          passwordHash: await hashPassword(input.password),
+        });
+        if ("error" in result) {
+          await recordFailedLogin(registrationKey);
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "اسم المستخدم مستخدم؛ اختر اسمًا آخر.",
+          });
+        }
+        await recordSuccessfulRegistration(registrationKey);
+        const account = await getAuthAccountByUserId(result.user.id);
+        if (!account) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const token = await createSessionToken(result.user.id, account.tokenVersion);
+        ctx.res.cookie(COOKIE_NAME, token, sessionCookieOptions(ctx.req));
+        return publicUser(result.user);
+      }),
+    login: publicProcedure
+      .input(
+        z.object({
+          username: usernameSchema,
+          password: z.string().min(1).max(128),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await ensureInitialAdmin();
+        const username = normalizeUsername(input.username);
+        const ipAddress = ctx.req.ip || ctx.req.socket.remoteAddress || "unknown";
+        const attemptKey = makeLoginAttemptKey(username, ipAddress);
+        const ipAttemptKey = makeLoginAttemptKey("login", ipAddress);
+        const [lockedUntil, ipLockedUntil] = await Promise.all([
+          getLoginLockUntil(attemptKey),
+          getLoginLockUntil(ipAttemptKey),
+        ]);
+        if (
+          (lockedUntil && lockedUntil.getTime() > Date.now()) ||
+          (ipLockedUntil && ipLockedUntil.getTime() > Date.now())
+        ) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: genericLoginError });
+        }
+
+        const account = await getAuthAccountByUsername(username);
+        dummyPasswordHash ??= hashPassword(randomBytes(32).toString("hex"));
+        const passwordMatches = await verifyPassword(
+          input.password,
+          account?.passwordHash ?? (await dummyPasswordHash)
+        );
+        if (!account || !passwordMatches) {
+          await Promise.all([
+            recordFailedLogin(attemptKey),
+            recordFailedLogin(ipAttemptKey),
+          ]);
+          throw new TRPCError({ code: "UNAUTHORIZED", message: genericLoginError });
+        }
+
+        const user = await getUserById(account.userId);
+        if (!user)
+          throw new TRPCError({ code: "UNAUTHORIZED", message: genericLoginError });
+        await Promise.all([
+          clearLoginFailures(attemptKey),
+          clearLoginFailures(ipAttemptKey),
+        ]);
+        await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+        const token = await createSessionToken(user.id, account.tokenVersion);
+        ctx.res.cookie(COOKIE_NAME, token, sessionCookieOptions(ctx.req));
+        return publicUser(user);
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    changePassword: protectedProcedure
+      .input(
+        z.object({
+          currentPassword: z.string().min(1).max(128),
+          newPassword: z.string().min(10).max(128),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const account = await getAuthAccountByUserId(ctx.user.id);
+        if (!account)
+          throw new TRPCError({ code: "NOT_FOUND", message: "الحساب غير موجود." });
+        if (!(await verifyPassword(input.currentPassword, account.passwordHash)))
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "كلمة المرور الحالية غير صحيحة.",
+          });
+        if (await verifyPassword(input.newPassword, account.passwordHash))
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "اختر كلمة مرور جديدة مختلفة عن الحالية.",
+          });
+        const updated = await updateLocalPassword(
+          ctx.user.id,
+          await hashPassword(input.newPassword)
+        );
+        if (!updated)
+          throw new TRPCError({ code: "NOT_FOUND", message: "الحساب غير موجود." });
+        const token = await createSessionToken(
+          ctx.user.id,
+          account.tokenVersion + 1
+        );
+        ctx.res.cookie(COOKIE_NAME, token, sessionCookieOptions(ctx.req));
+        return { success: true } as const;
+      }),
   }),
   student: router({
     dashboard: protectedProcedure.query(async ({ ctx }) => {
@@ -138,6 +297,36 @@ export const appRouter = router({
       ]);
       return { profile, program, today, weekStart, todayLog, recentLogs, goal };
     }),
+    createProfile: protectedProcedure
+      .input(
+        z
+          .object({
+            displayName: z.string().trim().min(2).max(160),
+            stage: stageSchema,
+            grade: gradeSchema,
+          })
+          .refine(
+            value => isGradeForStage(value.stage, value.grade),
+            "الصف لا يتوافق مع المرحلة"
+          )
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user")
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "إكمال هذا الملف متاح لحسابات الطلاب فقط.",
+          });
+        const profile = await createStudentProfile({
+          userId: ctx.user.id,
+          ...input,
+        });
+        if (!profile)
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "ملف الطالب موجود بالفعل. حدّث الصفحة للمتابعة.",
+          });
+        return profile;
+      }),
     claimInvite: protectedProcedure
       .input(
         z.object({
@@ -347,6 +536,32 @@ export const appRouter = router({
             message: "الحساب غير موجود.",
           });
         return { success: true };
+      }),
+    resetStudentPassword: adminProcedure
+      .input(z.object({ userId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.id === input.userId)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "لا يمكن إعادة تعيين كلمة مرور حسابك من هذه الشاشة.",
+          });
+        const [student, account] = await Promise.all([
+          getStudentProfile(input.userId),
+          getAuthAccountByUserId(input.userId),
+        ]);
+        if (!student || !account)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "ملف الطالب غير موجود.",
+          });
+        const temporaryPassword = randomBytes(12).toString("base64url");
+        const updated = await updateLocalPassword(
+          input.userId,
+          await hashPassword(temporaryPassword)
+        );
+        if (!updated)
+          throw new TRPCError({ code: "NOT_FOUND", message: "حساب الدخول غير موجود." });
+        return { temporaryPassword };
       }),
     saveProgram: adminProcedure
       .input(

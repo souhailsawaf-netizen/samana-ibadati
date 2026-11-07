@@ -1,9 +1,12 @@
 import { and, desc, eq, gte, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2";
 import {
   InsertUser,
   User,
+  authAttempts,
   dailyLogs,
+  localAccounts,
   programSettings,
   studentInvites,
   studentProfiles,
@@ -13,13 +16,49 @@ import {
 import type { GoalTask, ProgramItem, ProgramStage } from "../shared/program";
 import { DEFAULT_PROGRAM_ITEMS } from "../shared/program";
 import { ENV } from "./_core/env";
+import { hashPassword, normalizeUsername } from "./auth";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    _db = drizzle(process.env.DATABASE_URL);
+  if (!_db) {
+    const tidbUrl = process.env.TIDB_DATABASE_URL;
+    const tidbHost = process.env.TIDB_HOST;
+    const tidbUser = process.env.TIDB_USER;
+    const tidbPassword = process.env.TIDB_PASSWORD;
+    const tidbDatabase = process.env.TIDB_DATABASE;
+
+    if (tidbUrl) {
+      const url = new URL(tidbUrl);
+      const pool = mysql.createPool({
+        host: url.hostname,
+        port: Number(url.port || "4000"),
+        user: decodeURIComponent(url.username),
+        password: decodeURIComponent(url.password),
+        database: decodeURIComponent(url.pathname.replace(/^\//, "")),
+        ssl: { rejectUnauthorized: true },
+        connectionLimit: 5,
+        waitForConnections: true,
+      });
+      _db = drizzle(pool);
+    } else if (tidbHost && tidbUser && tidbPassword && tidbDatabase) {
+      const pool = mysql.createPool({
+        host: tidbHost,
+        port: Number(process.env.TIDB_PORT ?? "4000"),
+        user: tidbUser,
+        password: tidbPassword,
+        database: tidbDatabase,
+        ssl: { rejectUnauthorized: true },
+        connectionLimit: 5,
+        waitForConnections: true,
+      });
+      _db = drizzle(pool);
+    } else if (process.env.VERCEL === "1") {
+      throw new Error("TiDB connection settings are required on Vercel");
+    } else if (process.env.DATABASE_URL) {
+      _db = drizzle(process.env.DATABASE_URL);
+    }
   }
   return _db;
 }
@@ -70,6 +109,192 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+export async function getUserById(userId: number): Promise<User | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return result[0] ?? null;
+}
+
+export async function getAuthAccountByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select()
+    .from(localAccounts)
+    .where(eq(localAccounts.userId, userId))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function getAuthAccountByUsername(username: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const result = await db
+    .select()
+    .from(localAccounts)
+    .where(eq(localAccounts.username, username))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function ensureInitialAdmin() {
+  const username = normalizeUsername(process.env.INITIAL_ADMIN_USERNAME ?? "");
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  if (!username || !password) return;
+  if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(username))
+    throw new Error("INITIAL_ADMIN_USERNAME must be 3-32 lowercase letters or numbers");
+  if (password.length < 16)
+    throw new Error("INITIAL_ADMIN_PASSWORD must contain at least 16 characters");
+
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const currentAdmin = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+  if (currentAdmin[0]) return;
+
+  const existingAccount = await getAuthAccountByUsername(username);
+  if (existingAccount) {
+    const existingUser = await getUserById(existingAccount.userId);
+    if (existingUser?.role === "admin") return;
+    throw new Error("The bootstrap admin username is already assigned to a non-admin account");
+  }
+
+  const passwordHash = await hashPassword(password);
+  const openId = `local:${username}`;
+  await db.transaction(async tx => {
+    const admins = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.role, "admin"))
+      .for("update")
+      .limit(1);
+    if (admins[0]) return;
+
+    const collisions = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.openId, openId))
+      .limit(1);
+    if (collisions[0]) throw new Error("Bootstrap admin identity already exists");
+
+    await tx.insert(users).values({ openId, name: username, loginMethod: "local", role: "admin" });
+    const created = await tx.select({ id: users.id }).from(users).where(eq(users.openId, openId)).limit(1);
+    if (!created[0]) throw new Error("Failed to create bootstrap admin account");
+    await tx.insert(localAccounts).values({ userId: created[0].id, username, passwordHash });
+  });
+}
+
+export async function createStudentAccount(input: {
+  username: string;
+  passwordHash: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  return db.transaction(async tx => {
+    const duplicate = await tx
+      .select({ userId: localAccounts.userId })
+      .from(localAccounts)
+      .where(eq(localAccounts.username, input.username))
+      .limit(1);
+    if (duplicate[0]) return { error: "USERNAME_TAKEN" as const };
+
+    const openId = `local:${input.username}`;
+    await tx.insert(users).values({
+      openId,
+      name: input.username,
+      loginMethod: "local",
+      role: "user",
+      lastSignedIn: new Date(),
+    });
+    const created = await tx.select().from(users).where(eq(users.openId, openId)).limit(1);
+    if (!created[0]) throw new Error("Failed to create student account");
+    const user = created[0];
+
+    await tx.insert(localAccounts).values({
+      userId: user.id,
+      username: input.username,
+      passwordHash: input.passwordHash,
+    });
+    return { user };
+  });
+}
+
+export async function getLoginLockUntil(key: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const row = await db.select().from(authAttempts).where(eq(authAttempts.key, key)).limit(1);
+  return row[0]?.lockedUntil ?? null;
+}
+
+async function recordAuthAttempt(
+  key: string,
+  maxAttempts: number,
+  now: Date
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const windowMs = 15 * 60 * 1000;
+  await db.transaction(async tx => {
+    await tx
+      .delete(authAttempts)
+      .where(
+        lte(
+          authAttempts.windowStartedAt,
+          new Date(now.getTime() - 24 * 60 * 60 * 1000)
+        )
+      );
+    await tx
+      .insert(authAttempts)
+      .values({ key, attempts: 0, windowStartedAt: now, lockedUntil: null })
+      .onDuplicateKeyUpdate({ set: { key: sql`${authAttempts.key}` } });
+    const row = (
+      await tx.select().from(authAttempts).where(eq(authAttempts.key, key)).for("update").limit(1)
+    )[0];
+    if (!row) throw new Error("Failed to load login attempt counter");
+    const expired = now.getTime() - row.windowStartedAt.getTime() >= windowMs;
+    const attempts = expired ? 1 : row.attempts + 1;
+    const lockedUntil = attempts >= maxAttempts ? new Date(now.getTime() + windowMs) : expired ? null : row.lockedUntil;
+    await tx
+      .update(authAttempts)
+      .set({ attempts, windowStartedAt: expired ? now : row.windowStartedAt, lockedUntil })
+      .where(eq(authAttempts.key, key));
+  });
+}
+
+export function recordFailedLogin(key: string, now = new Date()) {
+  return recordAuthAttempt(key, 5, now);
+}
+
+export function recordSuccessfulRegistration(key: string, now = new Date()) {
+  return recordAuthAttempt(key, 25, now);
+}
+
+export async function clearLoginFailures(key: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(authAttempts).where(eq(authAttempts.key, key));
+}
+
+export async function updateLocalPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const account = await db
+    .select({ userId: localAccounts.userId })
+    .from(localAccounts)
+    .where(eq(localAccounts.userId, userId))
+    .limit(1);
+  if (!account[0]) return false;
+  await db
+    .update(localAccounts)
+    .set({
+      passwordHash,
+      passwordUpdatedAt: new Date(),
+      tokenVersion: sql`${localAccounts.tokenVersion} + 1`,
+    })
+    .where(eq(localAccounts.userId, userId));
+  return true;
+}
+
 export async function getStudentProfile(userId: number) {
   const db = await getDb();
   if (!db) return null;
@@ -110,6 +335,35 @@ export async function saveStudentProfile(input: StudentProfileInput) {
   if (!db) throw new Error("Database is not available");
   await upsertStudentProfile(db, input);
   return getStudentProfile(input.userId);
+}
+
+export async function createStudentProfile(input: Omit<StudentProfileInput, "active">) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  return db.transaction(async tx => {
+    const user = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .for("update")
+      .limit(1);
+    if (!user[0]) return null;
+
+    const existing = await tx
+      .select({ id: studentProfiles.id })
+      .from(studentProfiles)
+      .where(eq(studentProfiles.userId, input.userId))
+      .limit(1);
+    if (existing[0]) return null;
+
+    await tx.insert(studentProfiles).values({ ...input, active: true });
+    const created = await tx
+      .select()
+      .from(studentProfiles)
+      .where(eq(studentProfiles.userId, input.userId))
+      .limit(1);
+    return created[0] ?? null;
+  });
 }
 
 export async function updateStudentProfile(input: StudentProfileInput) {

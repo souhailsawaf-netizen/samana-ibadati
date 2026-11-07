@@ -34,6 +34,29 @@ export type ProgramItem = {
   enabled: boolean;
 };
 
+export type AnswerIndicator = {
+  tone: "green" | "yellow" | "red";
+  label: string;
+};
+
+export function getAnswerIndicator(
+  itemKey: string,
+  value?: string
+): AnswerIndicator | null {
+  if (itemKey === "parents") {
+    if (value === "done") return { tone: "green", label: "أنجزت بر الوالدين" };
+    if (value === "missed") return { tone: "red", label: "لم أنجز بر الوالدين" };
+  }
+
+  if (itemKey === "phone") {
+    if (value === "30to60") return { tone: "green", label: "وقت الجوال ضمن المدة المستهدفة" };
+    if (value === "under30") return { tone: "yellow", label: "وقت الجوال أقل من المدة المستهدفة" };
+    if (value === "over60") return { tone: "red", label: "وقت الجوال تجاوز ساعة" };
+  }
+
+  return null;
+}
+
 export type GoalTask = { id: string; title: string; done: boolean };
 
 const yesNo = (): ProgramChoice[] => [

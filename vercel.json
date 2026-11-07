@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "buildCommand": "pnpm vercel-build",
+  "installCommand": "bash vercel-bootstrap-install.sh",
+  "functions": {
+    "index.ts": {
+      "maxDuration": 30,
+      "includeFiles": "dist/public/**"
+    }
+  }
+}
