@@ -14,7 +14,7 @@ import {
   weeklyGoals,
 } from "../drizzle/schema";
 import type { GoalTask, ProgramItem, ProgramStage } from "../shared/program";
-import { DEFAULT_PROGRAM_ITEMS } from "../shared/program";
+import { DEFAULT_PROGRAM_ITEMS, normalizeProgramItems } from "../shared/program";
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeUsername } from "./auth";
 
@@ -549,7 +549,7 @@ export async function getProgram() {
       title: "برنامج عبادتي",
       startDate: "",
       endDate: "",
-      dailyItems: DEFAULT_PROGRAM_ITEMS,
+      dailyItems: normalizeProgramItems(DEFAULT_PROGRAM_ITEMS),
     };
   const rows = await db
     .select()
@@ -562,16 +562,18 @@ export async function getProgram() {
       title: "برنامج عبادتي",
       startDate: "",
       endDate: "",
-      dailyItems: DEFAULT_PROGRAM_ITEMS,
+      dailyItems: normalizeProgramItems(DEFAULT_PROGRAM_ITEMS),
     };
   const stored = rows[0];
-  const dailyItems = stored.dailyItems.map(item => ({
-    ...item,
-    choices: item.choices?.length
-      ? item.choices
-      : (DEFAULT_PROGRAM_ITEMS.find(defaultItem => defaultItem.key === item.key)
-          ?.choices ?? []),
-  }));
+  const dailyItems = normalizeProgramItems(
+    stored.dailyItems.map(item => ({
+      ...item,
+      choices: item.choices?.length
+        ? item.choices
+        : (DEFAULT_PROGRAM_ITEMS.find(defaultItem => defaultItem.key === item.key)
+            ?.choices ?? []),
+    }))
+  );
   return { ...stored, dailyItems };
 }
 
@@ -583,10 +585,16 @@ export async function saveProgram(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  const normalizedInput = {
+    ...input,
+    dailyItems: normalizeProgramItems(input.dailyItems),
+  };
   await db
     .insert(programSettings)
-    .values({ id: 1, ...input })
-    .onDuplicateKeyUpdate({ set: { ...input, updatedAt: new Date() } });
+    .values({ id: 1, ...normalizedInput })
+    .onDuplicateKeyUpdate({
+      set: { ...normalizedInput, updatedAt: new Date() },
+    });
   return getProgram();
 }
 

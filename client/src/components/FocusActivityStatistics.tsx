@@ -1,10 +1,21 @@
 import { ShieldCheck, Target } from "lucide-react";
+import {
+  FOCUS_ACTIVITY_KEYS,
+  PARENTS_ANSWER_VALUES,
+  type AnswerTone,
+} from "../../../shared/program";
 import type { FocusActivityStatistics as FocusActivityStatisticsData } from "../../../shared/focus-statistics";
 
 const arabicNumberFormatter = new Intl.NumberFormat("ar");
 
 function formatCount(value: number): string {
   return arabicNumberFormatter.format(value);
+}
+
+function colorForTone(tone: AnswerTone): string {
+  if (tone === "green") return "var(--status-green)";
+  if (tone === "yellow") return "var(--status-yellow)";
+  return "var(--status-red)";
 }
 
 function FocusStatisticsBar({
@@ -57,6 +68,14 @@ export function FocusActivityStatistics({
 }) {
   const parentAnswers = statistics.parents.answered;
   const phoneAnswers = statistics.phone.answered;
+  const parentsLabel =
+    statistics.parents.categories.find(
+      category => category.value === PARENTS_ANSWER_VALUES.dutiful
+    )?.label ?? "بار";
+  const legacyPhoneCount = statistics.phone.legacy.reduce(
+    (total, category) => total + category.count,
+    0
+  );
 
   return (
     <section
@@ -68,9 +87,7 @@ export function FocusActivityStatistics({
           <span className="eyebrow">قراءة إجمالية بلا ترتيب للطلاب</span>
           <h2 id="focus-statistics-title">بر الوالدين ووقت الجوال</h2>
         </div>
-        <span className="pill">
-          {formatCount(statistics.recordCount)} سجلًا
-        </span>
+        <span className="pill">{formatCount(statistics.recordCount)} سجلًا</span>
       </div>
       {statistics.recordCount === 0 && (
         <p className="notice" style={{ marginBottom: "1rem" }}>
@@ -85,7 +102,7 @@ export function FocusActivityStatistics({
             </span>
             <div>
               <span className="eyebrow">بر الوالدين</span>
-              <h3>نسبة الإنجاز من الإجابات المعروفة</h3>
+              <h3>توزيع الإجابات المسجلة</h3>
             </div>
           </div>
           <div className="focus-stat-highlight">
@@ -95,21 +112,18 @@ export function FocusActivityStatistics({
                 : `${formatCount(statistics.parents.completionPercent)}٪`}
             </strong>
             <span>
-              أجاب «أنجزت» من {formatCount(parentAnswers)} إجابة معروفة
+              اختار «{parentsLabel}» من {formatCount(parentAnswers)} إجابة معروفة
             </span>
           </div>
-          <FocusStatisticsBar
-            label="أنجزت بر الوالدين"
-            value={statistics.parents.done}
-            total={parentAnswers}
-            color="var(--status-green)"
-          />
-          <FocusStatisticsBar
-            label="لم أنجز"
-            value={statistics.parents.missed}
-            total={parentAnswers}
-            color="var(--status-red)"
-          />
+          {statistics.parents.categories.map(category => (
+            <FocusStatisticsBar
+              key={category.value}
+              label={category.label}
+              value={category.count}
+              total={parentAnswers}
+              color={colorForTone(category.tone)}
+            />
+          ))}
           <p className="focus-stat-note">
             غير مسجّل: {formatCount(statistics.parents.missing)} · قيمة غير
             معروفة: {formatCount(statistics.parents.unrecognized)}
@@ -133,36 +147,41 @@ export function FocusActivityStatistics({
                 : `${formatCount(statistics.phone.targetPercent)}٪`}
             </strong>
             <span>
-              ضمن الهدف ٣٠–٦٠ دقيقة من {formatCount(phoneAnswers)} إجابة معروفة
+              ضمن ٩٠ دقيقة من {formatCount(phoneAnswers)} إجابة حديثة معروفة
             </span>
           </div>
-          <FocusStatisticsBar
-            label="أقل من ٣٠ دقيقة"
-            value={statistics.phone.under30}
-            total={phoneAnswers}
-            color="var(--status-yellow)"
-          />
-          <FocusStatisticsBar
-            label="٣٠–٦٠ دقيقة"
-            value={statistics.phone.withinTarget}
-            total={phoneAnswers}
-            color="var(--status-green)"
-          />
-          <FocusStatisticsBar
-            label="أكثر من ساعة"
-            value={statistics.phone.over60}
-            total={phoneAnswers}
-            color="var(--status-red)"
-          />
+          {statistics.phone.categories.map(category => (
+            <FocusStatisticsBar
+              key={category.value}
+              label={category.label}
+              value={category.count}
+              total={phoneAnswers}
+              color={colorForTone(category.tone)}
+            />
+          ))}
+          {statistics.phone.legacy.map(category => (
+            <FocusStatisticsBar
+              key={category.value}
+              label={category.label}
+              value={category.count}
+              total={legacyPhoneCount}
+              color="#929ba3"
+            />
+          ))}
           <p className="focus-stat-note">
             غير مسجّل: {formatCount(statistics.phone.missing)} · قيمة غير
             معروفة: {formatCount(statistics.phone.unrecognized)}
+            {legacyPhoneCount > 0 && (
+              <> · إجابات قديمة محفوظة منفصلة: {formatCount(legacyPhoneCount)}</>
+            )}
           </p>
         </article>
       </div>
       <p className="muted focus-stat-footnote">
-        النسب محسوبة من الإجابات المعروفة فقط؛ السجل الذي لا يحتوي إجابة لا
-        يُحسب على أنه «لم أنجز». تعرض الصفحة أحدث ٥٬٠٠٠ سجل مطابق للمرشحات.
+        النسب محسوبة من الإجابات المعروفة داخل كل مجموعة؛ السجل الذي لا يحتوي
+        إجابة لا يُحسب على أنه «لم ينجز». تبقى إجابات الجوال ذات التصنيف السابق
+        محفوظة ومنفصلة، ولا يعاد تصنيفها ضمن الحدود الحالية. تعرض الصفحة أحدث
+        ٥٬٠٠٠ سجل مطابق للمرشحات.
       </p>
     </section>
   );

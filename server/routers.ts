@@ -14,6 +14,7 @@ import {
 } from "./auth";
 import {
   DEFAULT_PROGRAM_ITEMS,
+  hasSameChoiceValues,
   isGradeForStage,
   PROGRAM_GRADES,
 } from "../shared/program";
@@ -82,6 +83,7 @@ const programItemSchema = z.object({
       z.object({
         value: z.string().max(32),
         label: z.string().trim().min(1).max(60),
+        tone: z.enum(["green", "yellow", "red"]).optional(),
       })
     )
     .min(2)
@@ -506,8 +508,11 @@ export const appRouter = router({
         adminReportFiltersSchema.omit({ activity: true }).optional()
       )
       .query(async ({ input }) => {
-        const logs = await getAdminLogs(input ?? {});
-        return summarizeFocusActivities(logs);
+        const [logs, program] = await Promise.all([
+          getAdminLogs(input ?? {}),
+          getProgram(),
+        ]);
+        return summarizeFocusActivities(logs, program.dailyItems);
       }),
     updateStudent: adminProcedure
       .input(
@@ -627,31 +632,22 @@ export const appRouter = router({
             code: "BAD_REQUEST",
             message: "يوجد نشاط غير معروف.",
           });
-        const valuesByResponse: Record<ProgramItem["response"], string[]> = {
-          yesno: ["done", "missed"],
-          study: ["less1", "1h", "2h", "3h"],
-          words: ["0", "1", "2", "3"],
-          phone: ["under30", "30to60", "over60"],
-        };
         if (
           input.dailyItems.some(item => {
             const defaultItem = DEFAULT_PROGRAM_ITEMS.find(
               row => row.key === item.key
             );
             return (
+              !defaultItem ||
               item.response !== defaultItem?.response ||
-              item.choices
-                .map(choice => choice.value)
-                .sort()
-                .join(",") !==
-                valuesByResponse[item.response].slice().sort().join(",")
+              !hasSameChoiceValues(item.choices, defaultItem.choices)
             );
           })
         )
           throw new TRPCError({
             code: "BAD_REQUEST",
             message:
-              "يمكن تعديل نصوص الإجابات فقط مع الحفاظ على خيارات كل نشاط.",
+              "يمكن تعديل نصوص الإجابات وألوانها مع الحفاظ على القيم الداخلية لكل نشاط.",
           });
         return saveProgram(input);
       }),

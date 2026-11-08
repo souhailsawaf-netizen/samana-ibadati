@@ -3,10 +3,17 @@ import { trpc } from "@/lib/trpc";
 import {
   CATEGORY_LABELS,
   DEFAULT_PROGRAM_ITEMS,
+  FOCUS_ACTIVITY_KEYS,
   GRADES_BY_STAGE,
+  PARENTS_ANSWER_VALUES,
+  PHONE_ANSWER_VALUES,
   PROGRAM_GRADES,
   getAnswerIndicator,
+  getProgramDoneCount,
+  getLegacyAnswerLabel,
   isGradeForStage,
+  isProgramItemComplete,
+  type AnswerTone,
   type ProgramGrade,
   type ProgramItem,
   type ProgramStage,
@@ -58,6 +65,11 @@ const stageNames: Record<ProgramStage, string> = {
   primary: "ابتدائي",
   middle: "إعدادي",
 };
+const answerToneOptions: Array<{ value: AnswerTone; label: string }> = [
+  { value: "green", label: "أخضر" },
+  { value: "yellow", label: "أصفر" },
+  { value: "red", label: "أحمر" },
+];
 
 function readableDate(value: string) {
   const date = new Date(`${value}T12:00:00Z`);
@@ -66,18 +78,6 @@ function readableDate(value: string) {
     day: "numeric",
     month: "long",
   }).format(date);
-}
-function isComplete(item: ProgramItem, value?: string) {
-  if (item.response === "yesno") return value === "done";
-  if (item.response === "study")
-    return ["1h", "2h", "3h"].includes(value ?? "");
-  if (item.response === "words") return value === "3";
-  return value === "30to60";
-}
-function getDoneCount(items: ProgramItem[], answers: Answers) {
-  return items.filter(
-    item => item.enabled && isComplete(item, answers[item.key])
-  ).length;
 }
 function percent(part: number, total: number) {
   return total ? Math.round((part / total) * 100) : 0;
@@ -424,7 +424,7 @@ function StudentPage({
     ? dashboard.program.dailyItems
     : DEFAULT_PROGRAM_ITEMS;
   const enabledItems = items.filter(item => item.enabled);
-  const completedCount = getDoneCount(items, answers);
+  const completedCount = getProgramDoneCount(items, answers);
   const completionPercent = percent(completedCount, enabledItems.length);
   const progressMessage = getDailyProgressMessage(
     completedCount,
@@ -476,7 +476,9 @@ function StudentPage({
     () =>
       dashboard.recentLogs.map(log => ({
         date: log.logDate,
-        done: getDoneCount(items, log.answers ?? {}),
+        done: getProgramDoneCount(items, log.answers ?? {}, {
+          preserveLegacyPhoneAnswers: true,
+        }),
         total: items.filter(item => item.enabled).length,
       })),
     [dashboard.recentLogs, items]
@@ -486,7 +488,11 @@ function StudentPage({
     0
   );
   const totalDone = dashboard.recentLogs.reduce(
-    (sum, row) => sum + getDoneCount(items, row.answers ?? {}),
+    (sum, row) =>
+      sum +
+      getProgramDoneCount(items, row.answers ?? {}, {
+        preserveLegacyPhoneAnswers: true,
+      }),
     0
   );
 
@@ -671,12 +677,18 @@ function StudentPage({
             </h3>
             <div className="task-list">
               {sectionItems.map(item => {
-                const indicator = getAnswerIndicator(item.key, answers[item.key]);
-                const hasIndicator = item.key === "parents" || item.key === "phone";
+        const indicator = getAnswerIndicator(
+          item.key,
+          answers[item.key],
+          item.choices
+        );
+        const hasIndicator =
+          item.key === FOCUS_ACTIVITY_KEYS.parents ||
+          item.key === FOCUS_ACTIVITY_KEYS.phone;
                 return (
                   <article
                     key={item.key}
-                    className={`task-row ${isComplete(item, answers[item.key]) ? "done" : ""}`}
+                    className={`task-row ${isProgramItemComplete(item, answers[item.key]) ? "done" : ""}`}
                   >
                     <div className="task-copy">
                       <div className="task-title-row">
@@ -694,21 +706,29 @@ function StudentPage({
                     </div>
                     <div className="task-controls">
                       {item.response === "yesno" ? (
-                        item.choices.map(choice => (
-                          <button
-                            type="button"
-                            key={choice.value}
-                            aria-pressed={answers[item.key] === choice.value}
-                            disabled={answersMutation.isPending}
-                            className={`choice-btn ${answers[item.key] === choice.value ? (choice.value === "done" ? "active-yes" : "active-no") : ""}`}
-                            onClick={() => changeAnswer(item.key, choice.value)}
-                          >
-                            {choice.value === "done" && (
-                              <Check size={15} aria-hidden="true" />
-                            )} {" "}
-                            {choice.label}
-                          </button>
-                        ))
+                        item.choices.map(choice => {
+                          const selected = answers[item.key] === choice.value;
+                          const activeClass = choice.tone
+                            ? `active-${choice.tone}`
+                            : choice.value === "done"
+                              ? "active-yes"
+                              : "active-no";
+                          return (
+                            <button
+                              type="button"
+                              key={choice.value}
+                              aria-pressed={selected}
+                              disabled={answersMutation.isPending}
+                              className={`choice-btn ${selected ? activeClass : ""}`}
+                              onClick={() => changeAnswer(item.key, choice.value)}
+                            >
+                              {choice.value === "done" && (
+                                <Check size={15} aria-hidden="true" />
+                              )} {" "}
+                              {choice.label}
+                            </button>
+                          );
+                        })
                       ) : (
                         <select
                           aria-label={`الإجابة عن ${item.title}`}
@@ -1107,7 +1127,7 @@ function AdminPage({
   const saveProgram = trpc.admin.saveProgram.useMutation({
     onSuccess: () => {
       toast.success("تم تحديث إعدادات البرنامج");
-      utils.student.dashboard.invalidate();
+      void utils.invalidate();
     },
     onError: error => toast.error(error.message),
   });
@@ -1119,11 +1139,14 @@ function AdminPage({
       Object.values(row.answers ?? {}).filter(
         value =>
           value === "done" ||
+          value === PARENTS_ANSWER_VALUES.satisfactory ||
           value === "1h" ||
           value === "2h" ||
           value === "3h" ||
           value === "3" ||
-          value === "30to60"
+          value === PHONE_ANSWER_VALUES.under30 ||
+          value === PHONE_ANSWER_VALUES.within90 ||
+          value === PHONE_ANSWER_VALUES.legacy30to60
       ).length,
     0
   );
@@ -1677,9 +1700,9 @@ function AdminPage({
             </div>
             <div>
               <p className="muted">
-                عدّل نص السؤال وإرشاده وخيارات الإجابة، أو أخفِ النشاط. اضغط حفظ
-                إعدادات البرنامج لتطبيق التغييرات على الجميع. هذه التعديلات
-                تغيّر النصوص الظاهرة فقط ولا تعدّل إجابات الطلاب المحفوظة.
+                عدّل نص السؤال وإرشاده وخيارات الإجابة، ولون خيارات بر الوالدين
+                والجوال، أو أخفِ النشاط. اضغط حفظ إعدادات البرنامج لتطبيق
+                التغييرات على الجميع. تبقى إجابات الطلاب والقيم الداخلية كما هي.
               </p>
               {programItems.map((item, index) => (
                 <div
@@ -1736,12 +1759,12 @@ function AdminPage({
                     }
                   />
                   <details className="choice-editor">
-                    <summary>تعديل نص خيارات الإجابة لهذا السؤال</summary>
+                    <summary>تعديل نص خيارات الإجابة وألوانها عند توفرها</summary>
                     {item.choices.map((choice, choiceIndex) => (
-                      <div className="task-edit-row" key={choice.value}>
+                      <div className="task-edit-row choice-edit-row" key={choice.value}>
                         <span className="pill">{choice.value}</span>
                         <input
-                          aria-label={`نص الخيار ${choiceIndex + 1}`}
+                          aria-label={`نص الخيار ${choiceIndex + 1} لـ${item.title}`}
                           value={choice.label}
                           maxLength={60}
                           onChange={event =>
@@ -1765,6 +1788,46 @@ function AdminPage({
                             )
                           }
                         />
+                        {(item.key === FOCUS_ACTIVITY_KEYS.parents ||
+                          item.key === FOCUS_ACTIVITY_KEYS.phone) && (
+                          <label className="choice-tone-editor">
+                            <span
+                              className={`answer-indicator ${choice.tone ?? "unanswered"}`}
+                              aria-hidden="true"
+                            />
+                            <span>لون الإجابة</span>
+                            <select
+                              aria-label={`لون الخيار ${choiceIndex + 1} لـ${item.title}`}
+                              value={choice.tone ?? "green"}
+                              onChange={event =>
+                                setProgramItems(
+                                  programItems.map((row, rowIndex) =>
+                                    rowIndex === index
+                                      ? {
+                                          ...row,
+                                          choices: row.choices.map(
+                                            (option, optionIndex) =>
+                                              optionIndex === choiceIndex
+                                                ? {
+                                                    ...option,
+                                                    tone: event.target.value as AnswerTone,
+                                                  }
+                                                : option
+                                          ),
+                                        }
+                                      : row
+                                  )
+                                )
+                              }
+                            >
+                              {answerToneOptions.map(option => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
                       </div>
                     ))}
                   </details>
@@ -1779,6 +1842,8 @@ function AdminPage({
 }
 
 function answerText(value: string, item?: ProgramItem) {
+  const legacyLabel = getLegacyAnswerLabel(item?.key ?? "", value);
+  if (legacyLabel) return legacyLabel;
   const configuredLabel = item?.choices.find(
     choice => choice.value === value
   )?.label;
@@ -1794,9 +1859,9 @@ function answerText(value: string, item?: ProgramItem) {
     "1": "كلمة واحدة",
     "2": "كلمتان",
     "3": "٣ كلمات",
-    under30: "أقل من ٣٠ دقيقة",
-    "30to60": "٣٠–٦٠ دقيقة",
-    over60: "أكثر من ساعة",
+    under30: "٣٠ دقيقة وأقل",
+    "31to90": "٣١–٩٠ دقيقة",
+    over90: "أكثر من ٩٠ دقيقة",
   };
   return labels[value] ?? value;
 }
