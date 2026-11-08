@@ -1,4 +1,12 @@
-export type DailyStory = { title: string; body: string; takeaway: string };
+import { z } from "zod";
+
+const dailyStorySchema = z.object({
+  title: z.string().trim().min(2).max(120),
+  body: z.string().trim().min(2).max(1000),
+  takeaway: z.string().trim().min(2).max(240),
+});
+
+export type DailyStory = z.infer<typeof dailyStorySchema>;
 
 // Original fictional vignettes for young readers; they are not historical or religious reports.
 export const DAILY_STORIES: DailyStory[] = [
@@ -153,3 +161,7 @@ export const DAILY_STORIES: DailyStory[] = [
     takeaway: "راجع تقدمك بلطف، واختر خطوة جديدة قابلة للاستمرار.",
   },
 ];
+
+export const dailyStoriesSchema = z
+  .array(dailyStorySchema)
+  .length(DAILY_STORIES.length, "عدد القصص يجب أن يبقى ثابتًا.");

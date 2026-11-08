@@ -15,6 +15,7 @@ import {
 } from "../drizzle/schema";
 import type { GoalTask, ProgramItem, ProgramStage } from "../shared/program";
 import { DEFAULT_PROGRAM_ITEMS, normalizeProgramItems } from "../shared/program";
+import { DAILY_STORIES, type DailyStory } from "../shared/stories";
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeUsername } from "./auth";
 
@@ -550,6 +551,7 @@ export async function getProgram() {
       startDate: "",
       endDate: "",
       dailyItems: normalizeProgramItems(DEFAULT_PROGRAM_ITEMS),
+      dailyStories: DAILY_STORIES,
     };
   const rows = await db
     .select()
@@ -563,6 +565,7 @@ export async function getProgram() {
       startDate: "",
       endDate: "",
       dailyItems: normalizeProgramItems(DEFAULT_PROGRAM_ITEMS),
+      dailyStories: DAILY_STORIES,
     };
   const stored = rows[0];
   const dailyItems = normalizeProgramItems(
@@ -574,7 +577,11 @@ export async function getProgram() {
             ?.choices ?? []),
     }))
   );
-  return { ...stored, dailyItems };
+  return {
+    ...stored,
+    dailyItems,
+    dailyStories: stored.dailyStories?.length ? stored.dailyStories : DAILY_STORIES,
+  };
 }
 
 export async function saveProgram(input: {
@@ -582,6 +589,7 @@ export async function saveProgram(input: {
   startDate: string;
   endDate: string;
   dailyItems: ProgramItem[];
+  dailyStories: DailyStory[];
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");

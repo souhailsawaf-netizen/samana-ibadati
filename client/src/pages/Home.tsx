@@ -18,7 +18,7 @@ import {
   type ProgramItem,
   type ProgramStage,
 } from "../../../shared/program";
-import { DAILY_STORIES } from "../../../shared/stories";
+import { DAILY_STORIES, type DailyStory } from "../../../shared/stories";
 import {
   hasExactStudentRegistrationPasswordLength,
   isValidUsername,
@@ -26,6 +26,7 @@ import {
   STUDENT_REGISTRATION_PASSWORD_LENGTH,
 } from "../../../shared/auth";
 import { FocusActivityStatistics } from "@/components/FocusActivityStatistics";
+import { StoryEditor } from "@/components/StoryEditor";
 import {
   BookOpen,
   Check,
@@ -448,7 +449,10 @@ function StudentPage({
     )
   );
   const storyNumber = storyOffset + 1;
-  const story = DAILY_STORIES[storyOffset % DAILY_STORIES.length];
+  const stories = dashboard.program.dailyStories?.length
+    ? dashboard.program.dailyStories
+    : DAILY_STORIES;
+  const story = stories[storyOffset % stories.length];
 
   useEffect(() => {
     const dateChanged = activeAnswersDateRef.current !== dashboard.today;
@@ -1040,10 +1044,12 @@ function StudentInviteManager() {
 function AdminPage({
   roster,
   programItems,
+  programStories,
   programTitle,
   startDate,
   endDate,
   setProgramItems,
+  setProgramStories,
   setProgramTitle,
   setStartDate,
   setEndDate,
@@ -1051,10 +1057,12 @@ function AdminPage({
 }: {
   roster: RosterRow[];
   programItems: ProgramItem[];
+  programStories: DailyStory[];
   programTitle: string;
   startDate: string;
   endDate: string;
   setProgramItems: (items: ProgramItem[]) => void;
+  setProgramStories: (stories: DailyStory[]) => void;
   setProgramTitle: (value: string) => void;
   setStartDate: (value: string) => void;
   setEndDate: (value: string) => void;
@@ -1180,6 +1188,7 @@ function AdminPage({
       startDate,
       endDate,
       dailyItems: programItems,
+      dailyStories: programStories,
     });
 
   return (
@@ -1833,6 +1842,11 @@ function AdminPage({
                   </details>
                 </div>
               ))}
+              <StoryEditor
+                stories={programStories}
+                disabled={saveProgram.isPending}
+                onChange={setProgramStories}
+              />
             </div>
           </div>
         </section>
@@ -2002,7 +2016,13 @@ export default function Home() {
   const utils = trpc.useUtils();
   const [view, setView] = useState<View>("student");
   const dashboardQuery = useStudentQuery(auth.isAuthenticated);
+  const programQuery = trpc.program.current.useQuery(undefined, {
+    enabled: auth.isAuthenticated,
+    refetchInterval: auth.user?.role === "user" ? 15_000 : false,
+    refetchOnWindowFocus: true,
+  });
   const profile = dashboardQuery.data?.profile;
+  const currentProgram = programQuery.data ?? dashboardQuery.data?.program;
   const isAdmin = auth.user?.role === "admin";
   useEffect(() => {
     if (isAdmin) setView("admin");
@@ -2010,13 +2030,14 @@ export default function Home() {
   const rosterQuery = trpc.admin.roster.useQuery(undefined, {
     enabled: isAdmin && view === "admin",
   });
-  const saveProgramSeed = dashboardQuery.data?.program;
+  const saveProgramSeed = currentProgram;
   const [programTitle, setProgramTitle] = useState("برنامج عبادتي");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [programItems, setProgramItems] = useState<ProgramItem[]>(
     DEFAULT_PROGRAM_ITEMS
   );
+  const [programStories, setProgramStories] = useState<DailyStory[]>(DAILY_STORIES);
   useEffect(() => {
     if (!saveProgramSeed) return;
     setProgramTitle(saveProgramSeed.title);
@@ -2027,12 +2048,25 @@ export default function Home() {
         ? saveProgramSeed.dailyItems
         : DEFAULT_PROGRAM_ITEMS
     );
+    setProgramStories(
+      saveProgramSeed.dailyStories?.length
+        ? saveProgramSeed.dailyStories
+        : DAILY_STORIES
+    );
   }, [
     saveProgramSeed?.title,
     saveProgramSeed?.startDate,
     saveProgramSeed?.endDate,
     saveProgramSeed?.dailyItems,
+    saveProgramSeed?.dailyStories,
   ]);
+
+  const studentDashboard = dashboardQuery.data
+    ? {
+        ...dashboardQuery.data,
+        program: currentProgram ?? dashboardQuery.data.program,
+      }
+    : undefined;
 
   if (auth.loading)
     return (
@@ -2087,10 +2121,12 @@ export default function Home() {
             <AdminPage
               roster={(rosterQuery.data ?? []) as RosterRow[]}
               programItems={programItems}
+              programStories={programStories}
               programTitle={programTitle}
               startDate={startDate}
               endDate={endDate}
               setProgramItems={setProgramItems}
+              setProgramStories={setProgramStories}
               setProgramTitle={setProgramTitle}
               setStartDate={setStartDate}
               setEndDate={setEndDate}
@@ -2126,7 +2162,7 @@ export default function Home() {
           </main>
         ) : (
           <StudentPage
-            dashboard={dashboardQuery.data}
+            dashboard={studentDashboard ?? dashboardQuery.data}
             userName={auth.user?.name ?? ""}
           />
         )

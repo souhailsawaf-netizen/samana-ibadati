@@ -10,6 +10,7 @@ import {
   varchar,
 } from "drizzle-orm/mysql-core";
 import type { GoalTask, ProgramItem, ProgramStage } from "../shared/program";
+import type { DailyStory } from "../shared/stories";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -133,5 +134,6 @@ export const programSettings = mysqlTable("program_settings", {
   startDate: varchar("startDate", { length: 10 }).notNull().default(""),
   endDate: varchar("endDate", { length: 10 }).notNull().default(""),
   dailyItems: json("dailyItems").$type<ProgramItem[]>().notNull(),
+  dailyStories: json("dailyStories").$type<DailyStory[]>(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

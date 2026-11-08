@@ -19,6 +19,7 @@ import {
   PROGRAM_GRADES,
 } from "../shared/program";
 import type { ProgramItem } from "../shared/program";
+import { dailyStoriesSchema } from "../shared/stories";
 import { summarizeFocusActivities } from "../shared/focus-statistics";
 import {
   getAdminLogs,
@@ -454,6 +455,9 @@ export const appRouter = router({
         return getStudentHistory(ctx.user.id, input?.from, input?.to);
       }),
   }),
+  program: router({
+    current: protectedProcedure.query(() => getProgram()),
+  }),
   admin: router({
     roster: adminProcedure.query(() => getAdminRoster()),
     invites: adminProcedure.query(() => getAdminInvites()),
@@ -593,6 +597,7 @@ export const appRouter = router({
             startDate: z.union([z.literal(""), dateString]),
             endDate: z.union([z.literal(""), dateString]),
             dailyItems: z.array(programItemSchema).min(1).max(30),
+            dailyStories: dailyStoriesSchema,
           })
           .refine(
             value =>
