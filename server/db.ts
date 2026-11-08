@@ -14,12 +14,16 @@ import {
   weeklyGoals,
 } from "../drizzle/schema";
 import type { GoalTask, ProgramItem, ProgramStage } from "../shared/program";
-import { DEFAULT_PROGRAM_ITEMS, normalizeProgramItems } from "../shared/program";
+import {
+  DEFAULT_PROGRAM_ITEMS,
+  normalizeProgramItems,
+} from "../shared/program";
 import { DAILY_STORIES, type DailyStory } from "../shared/stories";
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeUsername } from "./auth";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: ReturnType<typeof mysql.createPool> | null = null;
 type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 export async function getDb() {
@@ -32,7 +36,7 @@ export async function getDb() {
 
     if (tidbUrl) {
       const url = new URL(tidbUrl);
-      const pool = mysql.createPool({
+      _pool = mysql.createPool({
         host: url.hostname,
         port: Number(url.port || "4000"),
         user: decodeURIComponent(url.username),
@@ -42,9 +46,9 @@ export async function getDb() {
         connectionLimit: 5,
         waitForConnections: true,
       });
-      _db = drizzle(pool);
+      _db = drizzle(_pool);
     } else if (tidbHost && tidbUser && tidbPassword && tidbDatabase) {
-      const pool = mysql.createPool({
+      _pool = mysql.createPool({
         host: tidbHost,
         port: Number(process.env.TIDB_PORT ?? "4000"),
         user: tidbUser,
@@ -54,14 +58,50 @@ export async function getDb() {
         connectionLimit: 5,
         waitForConnections: true,
       });
-      _db = drizzle(pool);
+      _db = drizzle(_pool);
     } else if (process.env.VERCEL === "1") {
       throw new Error("TiDB connection settings are required on Vercel");
     } else if (process.env.DATABASE_URL) {
-      _db = drizzle(process.env.DATABASE_URL);
+      _pool = mysql.createPool(process.env.DATABASE_URL);
+      _db = drizzle(_pool);
     }
   }
   return _db;
+}
+
+export async function closeDbPool(): Promise<void> {
+  const pool = _pool;
+  _pool = null;
+  _db = null;
+  if (!pool) return;
+
+  await new Promise<void>((resolve, reject) => {
+    pool.end(error => (error ? reject(error) : resolve()));
+  });
+}
+
+const studentUsernameUniqueKeys = [
+  "local_accounts_username_idx",
+  "local_accounts.username",
+  "users_openid_unique",
+  "users.openid",
+];
+
+export function isStudentUsernameConflictError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    sqlMessage?: unknown;
+  };
+  if (candidate.code !== "ER_DUP_ENTRY") return false;
+
+  const databaseMessage = [candidate.message, candidate.sqlMessage]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return studentUsernameUniqueKeys.some(key => databaseMessage.includes(key));
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -113,7 +153,11 @@ export async function getUserByOpenId(openId: string) {
 export async function getUserById(userId: number): Promise<User | null> {
   const db = await getDb();
   if (!db) return null;
-  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
   return result[0] ?? null;
 }
 
@@ -144,20 +188,30 @@ export async function ensureInitialAdmin() {
   const password = process.env.INITIAL_ADMIN_PASSWORD;
   if (!username || !password) return;
   if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(username))
-    throw new Error("INITIAL_ADMIN_USERNAME must be 3-32 lowercase letters or numbers");
+    throw new Error(
+      "INITIAL_ADMIN_USERNAME must be 3-32 lowercase letters or numbers"
+    );
   if (password.length < 16)
-    throw new Error("INITIAL_ADMIN_PASSWORD must contain at least 16 characters");
+    throw new Error(
+      "INITIAL_ADMIN_PASSWORD must contain at least 16 characters"
+    );
 
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const currentAdmin = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+  const currentAdmin = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, "admin"))
+    .limit(1);
   if (currentAdmin[0]) return;
 
   const existingAccount = await getAuthAccountByUsername(username);
   if (existingAccount) {
     const existingUser = await getUserById(existingAccount.userId);
     if (existingUser?.role === "admin") return;
-    throw new Error("The bootstrap admin username is already assigned to a non-admin account");
+    throw new Error(
+      "The bootstrap admin username is already assigned to a non-admin account"
+    );
   }
 
   const passwordHash = await hashPassword(password);
@@ -176,12 +230,22 @@ export async function ensureInitialAdmin() {
       .from(users)
       .where(eq(users.openId, openId))
       .limit(1);
-    if (collisions[0]) throw new Error("Bootstrap admin identity already exists");
+    if (collisions[0])
+      throw new Error("Bootstrap admin identity already exists");
 
-    await tx.insert(users).values({ openId, name: username, loginMethod: "local", role: "admin" });
-    const created = await tx.select({ id: users.id }).from(users).where(eq(users.openId, openId)).limit(1);
-    if (!created[0]) throw new Error("Failed to create bootstrap admin account");
-    await tx.insert(localAccounts).values({ userId: created[0].id, username, passwordHash });
+    await tx
+      .insert(users)
+      .values({ openId, name: username, loginMethod: "local", role: "admin" });
+    const created = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.openId, openId))
+      .limit(1);
+    if (!created[0])
+      throw new Error("Failed to create bootstrap admin account");
+    await tx
+      .insert(localAccounts)
+      .values({ userId: created[0].id, username, passwordHash });
   });
 }
 
@@ -191,47 +255,58 @@ export async function createStudentAccount(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  return db.transaction(async tx => {
-    const duplicate = await tx
-      .select({ userId: localAccounts.userId })
-      .from(localAccounts)
-      .where(eq(localAccounts.username, input.username))
-      .limit(1);
-    if (duplicate[0]) return { error: "USERNAME_TAKEN" as const };
+  try {
+    return await db.transaction(async tx => {
+      const duplicate = await tx
+        .select({ userId: localAccounts.userId })
+        .from(localAccounts)
+        .where(eq(localAccounts.username, input.username))
+        .limit(1);
+      if (duplicate[0]) return { error: "USERNAME_TAKEN" as const };
 
-    const openId = `local:${input.username}`;
-    await tx.insert(users).values({
-      openId,
-      name: input.username,
-      loginMethod: "local",
-      role: "user",
-      lastSignedIn: new Date(),
-    });
-    const created = await tx.select().from(users).where(eq(users.openId, openId)).limit(1);
-    if (!created[0]) throw new Error("Failed to create student account");
-    const user = created[0];
+      const openId = `local:${input.username}`;
+      await tx.insert(users).values({
+        openId,
+        name: input.username,
+        loginMethod: "local",
+        role: "user",
+        lastSignedIn: new Date(),
+      });
+      const created = await tx
+        .select()
+        .from(users)
+        .where(eq(users.openId, openId))
+        .limit(1);
+      if (!created[0]) throw new Error("Failed to create student account");
+      const user = created[0];
 
-    await tx.insert(localAccounts).values({
-      userId: user.id,
-      username: input.username,
-      passwordHash: input.passwordHash,
+      await tx.insert(localAccounts).values({
+        userId: user.id,
+        username: input.username,
+        passwordHash: input.passwordHash,
+      });
+      return { user };
     });
-    return { user };
-  });
+  } catch (error) {
+    if (isStudentUsernameConflictError(error)) {
+      return { error: "USERNAME_TAKEN" as const };
+    }
+    throw error;
+  }
 }
 
 export async function getLoginLockUntil(key: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const row = await db.select().from(authAttempts).where(eq(authAttempts.key, key)).limit(1);
+  const row = await db
+    .select()
+    .from(authAttempts)
+    .where(eq(authAttempts.key, key))
+    .limit(1);
   return row[0]?.lockedUntil ?? null;
 }
 
-async function recordAuthAttempt(
-  key: string,
-  maxAttempts: number,
-  now: Date
-) {
+async function recordAuthAttempt(key: string, maxAttempts: number, now: Date) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const windowMs = 15 * 60 * 1000;
@@ -249,15 +324,29 @@ async function recordAuthAttempt(
       .values({ key, attempts: 0, windowStartedAt: now, lockedUntil: null })
       .onDuplicateKeyUpdate({ set: { key: sql`${authAttempts.key}` } });
     const row = (
-      await tx.select().from(authAttempts).where(eq(authAttempts.key, key)).for("update").limit(1)
+      await tx
+        .select()
+        .from(authAttempts)
+        .where(eq(authAttempts.key, key))
+        .for("update")
+        .limit(1)
     )[0];
     if (!row) throw new Error("Failed to load login attempt counter");
     const expired = now.getTime() - row.windowStartedAt.getTime() >= windowMs;
     const attempts = expired ? 1 : row.attempts + 1;
-    const lockedUntil = attempts >= maxAttempts ? new Date(now.getTime() + windowMs) : expired ? null : row.lockedUntil;
+    const lockedUntil =
+      attempts >= maxAttempts
+        ? new Date(now.getTime() + windowMs)
+        : expired
+          ? null
+          : row.lockedUntil;
     await tx
       .update(authAttempts)
-      .set({ attempts, windowStartedAt: expired ? now : row.windowStartedAt, lockedUntil })
+      .set({
+        attempts,
+        windowStartedAt: expired ? now : row.windowStartedAt,
+        lockedUntil,
+      })
       .where(eq(authAttempts.key, key));
   });
 }
@@ -276,7 +365,10 @@ export async function clearLoginFailures(key: string) {
   await db.delete(authAttempts).where(eq(authAttempts.key, key));
 }
 
-export async function updateLocalPassword(userId: number, passwordHash: string) {
+export async function updateLocalPassword(
+  userId: number,
+  passwordHash: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const account = await db
@@ -338,7 +430,9 @@ export async function saveStudentProfile(input: StudentProfileInput) {
   return getStudentProfile(input.userId);
 }
 
-export async function createStudentProfile(input: Omit<StudentProfileInput, "active">) {
+export async function createStudentProfile(
+  input: Omit<StudentProfileInput, "active">
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   return db.transaction(async tx => {
@@ -573,14 +667,17 @@ export async function getProgram() {
       ...item,
       choices: item.choices?.length
         ? item.choices
-        : (DEFAULT_PROGRAM_ITEMS.find(defaultItem => defaultItem.key === item.key)
-            ?.choices ?? []),
+        : (DEFAULT_PROGRAM_ITEMS.find(
+            defaultItem => defaultItem.key === item.key
+          )?.choices ?? []),
     }))
   );
   return {
     ...stored,
     dailyItems,
-    dailyStories: stored.dailyStories?.length ? stored.dailyStories : DAILY_STORIES,
+    dailyStories: stored.dailyStories?.length
+      ? stored.dailyStories
+      : DAILY_STORIES,
   };
 }
 

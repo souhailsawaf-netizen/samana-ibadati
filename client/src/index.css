@@ -190,6 +190,11 @@ tr:last-child td { border-bottom: 0; }
 .footer-note { margin-top: 2rem; text-align: center; color: var(--muted-foreground); font-size: .75rem; }
 .loading { min-height: 12rem; display: grid; place-items: center; color: var(--muted-foreground); }
 .error-box { padding: .8rem; border-radius: .75rem; color: #8b4738; background: #f7e9e2; }
+.query-error { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin: .75rem 0; }
+.query-error .error-box { margin: 0; }
+.button:disabled { cursor: not-allowed; opacity: .62; transform: none; filter: none; }
+.admin-student-select { padding: 0; border: 0; background: transparent; color: var(--navy); font: inherit; font-weight: 700; text-align: start; cursor: pointer; }
+.admin-student-select:focus-visible { outline: 3px solid var(--gold-dark); outline-offset: 3px; border-radius: .2rem; }
 .focus-stat-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
 .focus-stat-card { padding: 1rem; border: 1px solid var(--border); border-radius: .9rem; background: linear-gradient(145deg,#fffdf8,#fbf8ef); }
 .focus-stat-heading { display: flex; align-items: center; gap: .65rem; min-height: 2.8rem; }

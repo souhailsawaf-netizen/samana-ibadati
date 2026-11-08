@@ -12,6 +12,9 @@ export function serveStatic(app: Express) {
   }
 
   app.use(express.static(distPath, { index: false }));
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "Not Found" });
+  });
   app.get("/404", (_req, res) => {
     res.status(404).sendFile(path.resolve(distPath, "index.html"));
   });

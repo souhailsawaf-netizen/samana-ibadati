@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createServer } from "node:http";
+import { closeDbPool } from "../db";
 import app from "./app";
 import { serveStatic } from "./static";
 
@@ -13,19 +14,45 @@ if (process.env.VERCEL !== "1") {
     throw new Error("Invalid PORT");
   }
 
-  if (process.env.NODE_ENV === "development") {
-    void import("./vite").then(({ setupVite }) => setupVite(app, server)).then(() => {
-      server.listen(port, "0.0.0.0", () =>
-        console.log(`Server listening on port ${port}`)
-      );
-    }).catch(error => {
-      console.error("Development server failed:", error);
-      process.exit(1);
+  const listen = () => {
+    server.listen(port, "0.0.0.0", () => {
+      console.log(`Server listening on port ${port}`);
+      registerShutdownHandlers();
     });
+  };
+
+  function registerShutdownHandlers() {
+    let shuttingDown = false;
+    const shutdown = (signal: NodeJS.Signals) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`Received ${signal}; closing HTTP server`);
+      server.close(error => {
+        if (error) {
+          process.exitCode = 1;
+          console.error("Failed to close HTTP server:", error);
+        }
+        void closeDbPool().catch(poolError => {
+          process.exitCode = 1;
+          console.error("Failed to close database pool:", poolError);
+        });
+      });
+    };
+
+    process.once("SIGTERM", () => shutdown("SIGTERM"));
+    process.once("SIGINT", () => shutdown("SIGINT"));
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    void import("./vite")
+      .then(({ setupVite }) => setupVite(app, server))
+      .then(listen)
+      .catch(error => {
+        console.error("Development server failed:", error);
+        process.exit(1);
+      });
   } else {
     serveStatic(app);
-    server.listen(port, "0.0.0.0", () =>
-      console.log(`Server listening on port ${port}`)
-    );
+    listen();
   }
 }
